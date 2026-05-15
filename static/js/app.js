@@ -45,7 +45,7 @@ const state = {
 };
 
 // ── HTTP helpers ─────────────────────────────────────────────────
-const _headers = () => ({ 'Content-Type': 'application/json', 'x-api-key': API_KEY });
+const _headers = () => ({ 'Content-Type': 'application/json' });
 
 // ── SSE helpers ──────────────────────────────────────────────────
 async function readSSEStream(response) {
@@ -128,20 +128,20 @@ function appendMessage(role, content) {
   wrap.className = `flex gap-3 animate-in ${isAi ? 'justify-start' : 'justify-end'}`;
 
   const avatarHtml = isAi
-    ? `<div class="w-8 h-8 rounded-full bg-brand-600 flex items-center justify-center flex-shrink-0 mt-1">
+    ? `<div class="w-9 h-9 rounded-full bg-brand-600 flex items-center justify-center flex-shrink-0 mt-1">
          <svg class="w-4 h-4 text-white" viewBox="0 0 24 24" fill="currentColor">
            <path d="M12 2.5l1.8 5.6 5.7 1.4-5.7 1.4-1.8 5.6-1.8-5.6-5.7-1.4 5.7-1.4z"/>
          </svg>
        </div>`
-    : `<div class="w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center flex-shrink-0 mt-1 text-slate-500 text-xs font-semibold">Tú</div>`;
+    : `<div class="w-9 h-9 rounded-full bg-slate-200 flex items-center justify-center flex-shrink-0 mt-1 text-slate-500 text-[13px] font-semibold">Tú</div>`;
 
   const bubbleCls = isAi
     ? 'bg-white text-slate-800 rounded-2xl rounded-tl-sm shadow-sm border border-slate-100'
     : 'bg-brand-600 text-white rounded-2xl rounded-tr-sm';
 
   wrap.innerHTML = isAi
-    ? `${avatarHtml}<div class="max-w-[82%] px-4 py-3 text-sm leading-relaxed chat-bubble ${bubbleCls}">${escapeHtml(content)}</div>`
-    : `<div class="max-w-[82%] px-4 py-3 text-sm leading-relaxed chat-bubble ${bubbleCls}">${escapeHtml(content)}</div>${avatarHtml}`;
+    ? `${avatarHtml}<div class="max-w-[82%] px-4 py-3 text-[15px] leading-relaxed chat-bubble ${bubbleCls}">${escapeHtml(content)}</div>`
+    : `<div class="max-w-[82%] px-4 py-3 text-[15px] leading-relaxed chat-bubble ${bubbleCls}">${escapeHtml(content)}</div>${avatarHtml}`;
 
   const emptyState = document.getElementById('chat-empty');
   if (emptyState) emptyState.style.display = 'none';
@@ -179,14 +179,14 @@ function appendStreamingChunk(delta) {
 
     const wrap = document.createElement('div');
     wrap.className = 'flex gap-3 justify-start animate-in';
-    wrap.innerHTML = `<div class="w-8 h-8 rounded-full bg-brand-600 flex items-center justify-center flex-shrink-0 mt-1">
-      <svg class="w-4 h-4 text-white" viewBox="0 0 24 24" fill="currentColor">
+    wrap.innerHTML = `<div class="w-9 h-9 rounded-full bg-brand-600 flex items-center justify-center flex-shrink-0 mt-1">
+      <svg class="w-5 h-5 text-white" viewBox="0 0 24 24" fill="currentColor">
         <path d="M12 2.5l1.8 5.6 5.7 1.4-5.7 1.4-1.8 5.6-1.8-5.6-5.7-1.4 5.7-1.4z"/>
       </svg>
     </div>`;
 
     const bubble = document.createElement('div');
-    bubble.className = 'max-w-[82%] px-4 py-3 text-sm leading-relaxed chat-bubble bg-white text-slate-800 rounded-2xl rounded-tl-sm shadow-sm border border-slate-100';
+    bubble.className = 'max-w-[82%] px-4 py-3 text-[15px] leading-relaxed chat-bubble bg-white text-slate-800 rounded-2xl rounded-tl-sm shadow-sm border border-slate-100';
     wrap.appendChild(bubble);
     container.appendChild(wrap);
     state.streamingBubble = bubble;
@@ -205,7 +205,7 @@ function showQuestions(questions) {
   wrap.className = 'flex flex-wrap gap-2 animate-in';
   questions.forEach(q => {
     const btn = document.createElement('button');
-    btn.className = 'px-3 py-1.5 text-xs bg-brand-50 border border-brand-200 text-brand-700 rounded-full hover:bg-brand-100 transition-colors';
+    btn.className = 'px-4 py-2 text-[13px] bg-brand-50 border border-brand-200 text-brand-700 rounded-full hover:bg-brand-100 transition-colors';
     btn.textContent = q;
     btn.onclick = () => { setInput(q); document.getElementById('chat-input-field').focus(); };
     wrap.appendChild(btn);
@@ -238,7 +238,7 @@ async function sendMessage() {
   if (state.ficha['tipo_equipo']?.value != null) showPriceLoading();
 
   try {
-    const res = await fetch(`${API_URL}/api/chat/${SESSION_ID}`, {
+    const res = await fetch(`/api/chat/${SESSION_ID}`, {
       method: 'POST',
       headers: _headers(),
       body: JSON.stringify({ content }),
@@ -270,7 +270,7 @@ function applyFichaUpdate(update) {
   if (valueSpan) {
     const displayVal = update.value === true ? 'Sí' : update.value === false ? 'No' : String(update.value);
     valueSpan.textContent = displayVal;
-    valueSpan.className = 'attr-value text-xs font-semibold text-slate-800';
+    valueSpan.className = 'attr-value text-[13px] font-semibold text-slate-800';
   }
 
   const badge = row.querySelector('.attr-badge');
@@ -283,7 +283,7 @@ function applyFichaUpdate(update) {
     const cfg = configs[update.source];
     if (cfg) {
       badge.textContent = cfg.label;
-      badge.className = `attr-badge text-[10px] font-medium px-1.5 py-0.5 rounded-md border ${cfg.cls}`;
+      badge.className = `attr-badge text-xs font-medium px-2 py-0.5 rounded-md border ${cfg.cls}`;
       badge.classList.remove('hidden');
     }
   }
@@ -339,7 +339,7 @@ function startEdit(attr) {
     values.forEach(v => {
       const btn = document.createElement('button');
       const isActive = String(currentVal) === String(v);
-      btn.className = `px-2 py-1 text-xs rounded-lg border transition-colors ${
+      btn.className = `px-2.5 py-1.5 text-[13px] rounded-lg border transition-colors ${
         isActive
           ? 'bg-brand-600 text-white border-brand-600'
           : 'bg-white text-slate-700 border-slate-200 hover:border-brand-400'
@@ -363,7 +363,7 @@ function startEdit(attr) {
     const input = document.createElement('input');
     input.type = 'text';
     input.value = String(currentVal);
-    input.className = 'flex-1 text-xs px-2 py-1 border border-brand-400 rounded-lg focus:outline-none focus:ring-1 focus:ring-brand-400';
+    input.className = 'flex-1 text-[13px] px-3 py-1.5 border border-brand-400 rounded-lg focus:outline-none focus:ring-1 focus:ring-brand-400';
     input.placeholder = `Ingresar ${meta.label.toLowerCase()}...`;
     input.addEventListener('keydown', (e) => {
       if (e.key === 'Enter') commitEdit(attr, input.value.trim());
@@ -408,7 +408,7 @@ function commitEdit(attr, value) {
     showPriceLoading();
   }
 
-  fetch(`${API_URL}/api/manual_update/${SESSION_ID}`, {
+  fetch(`/api/manual_update/${SESSION_ID}`, {
     method: 'POST',
     headers: _headers(),
     body: JSON.stringify({ attribute: attr, value }),
@@ -443,8 +443,8 @@ function showPriceLoading() {
     <div class="bg-white border border-slate-200 rounded-xl shadow-sm px-4 py-3 flex items-center gap-4 animate-in">
       <div class="price-spinner"></div>
       <div class="min-w-0">
-        <p class="text-xs font-medium text-slate-700">Estimando precio de referencia</p>
-        <p id="price-loading-msg" class="text-[11px] text-slate-400 mt-0.5 price-loading-text truncate">${PRICE_LOADING_MSGS[0]}</p>
+        <p class="text-[13px] font-medium text-slate-700">Estimando precio de referencia</p>
+        <p id="price-loading-msg" class="text-[12px] text-slate-400 mt-0.5 price-loading-text truncate">${PRICE_LOADING_MSGS[0]}</p>
       </div>
     </div>`;
 
@@ -491,21 +491,21 @@ function renderPriceEstimate(data) {
           <svg class="w-3.5 h-3.5 text-white opacity-80" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
             <polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/>
           </svg>
-          <span class="text-xs font-semibold text-white">Estimación de Precio de Referencia</span>
+          <span class="text-[13px] font-semibold text-white">Estimación de Precio de Referencia</span>
         </div>
-        <span class="text-[11px] text-blue-200 opacity-80">${data.count.toLocaleString('es-CL')} ofertas similares</span>
+        <span class="text-[12px] text-blue-200 opacity-80">${data.count.toLocaleString('es-CL')} ofertas similares</span>
       </div>
       <div class="px-4 py-3">
         <div class="flex items-end justify-between gap-4 mb-2.5">
           <div>
-            <p class="text-2xl font-bold text-brand-700 leading-none">${fmt(data.median)}</p>
-            <p class="text-[11px] text-slate-400 mt-0.5">mediana · precio neto (sin IVA)</p>
-            <p class="text-xs font-semibold text-slate-600 mt-1">${fmt(data.median_iva)} <span class="font-normal text-slate-400">con IVA</span></p>
+            <p class="text-3xl font-bold text-brand-700 leading-none">${fmt(data.median)}</p>
+            <p class="text-[13px] text-slate-400 mt-0.5">mediana · precio neto (sin IVA)</p>
+            <p class="text-[13px] font-semibold text-slate-600 mt-1">${fmt(data.median_iva)} <span class="font-normal text-slate-400">con IVA</span></p>
           </div>
           <div class="text-right flex-shrink-0">
-            <p class="text-[11px] text-slate-400 mb-0.5">Rango P25 – P75</p>
-            <p class="text-xs font-medium text-slate-600">${fmt(data.p25)} – ${fmt(data.p75)}</p>
-            <p class="text-[10px] text-slate-400">${fmt(data.p25_iva)} – ${fmt(data.p75_iva)} c/IVA</p>
+            <p class="text-[12px] text-slate-400 mb-0.5">Rango P25 – P75</p>
+            <p class="text-[13px] font-medium text-slate-600">${fmt(data.p25)} – ${fmt(data.p75)}</p>
+            <p class="text-[11px] text-slate-400">${fmt(data.p25_iva)} – ${fmt(data.p75_iva)} c/IVA</p>
           </div>
         </div>
         <div class="relative h-2 bg-slate-100 rounded-full mb-2">
@@ -516,7 +516,7 @@ function renderPriceEstimate(data) {
         </div>
         <div class="flex justify-between text-[10px] text-slate-400 border-t border-slate-100 pt-2">
           <span>Mín: ${fmt(data.min)}</span>
-          <span class="text-slate-300">${data.match_description}</span>
+          <span class="text-slate-300 text-[11px]">${data.match_description}</span>
           <span>Máx: ${fmt(data.max)}</span>
         </div>
       </div>
@@ -531,8 +531,8 @@ function priceNotFoundHtml() {
         <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
       </svg>
       <div>
-        <p class="text-xs font-semibold text-amber-700">Sin precio de referencia disponible</p>
-        <p class="text-[11px] text-amber-600 mt-0.5 leading-snug">No encontramos suficientes ofertas similares en Compra Ágil. Prueba ajustando el procesador, RAM o almacenamiento.</p>
+        <p class="text-[13px] font-semibold text-amber-700">Sin precio de referencia disponible</p>
+        <p class="text-[12px] text-amber-600 mt-0.5 leading-snug">No encontramos suficientes ofertas similares en Compra Ágil. Prueba ajustando el procesador, RAM o almacenamiento.</p>
       </div>
     </div>`;
 }
@@ -544,7 +544,7 @@ function priceEmptyHtml() {
       <svg class="w-4 h-4 flex-shrink-0 text-slate-300" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
         <polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/>
       </svg>
-      <p class="text-xs leading-snug">La estimación de precio aparecerá cuando la ficha tenga suficientes datos</p>
+      <p class="text-[13px] leading-snug">La estimación de precio aparecerá cuando la ficha tenga suficientes datos</p>
     </div>`;
 }
 
@@ -710,7 +710,7 @@ function resetUI() {
     const vs = row.querySelector('.attr-value');
     const badge = row.querySelector('.attr-badge');
     const trigger = row.querySelector('.attr-trigger');
-    if (vs) { vs.textContent = 'sin valor'; vs.className = 'attr-value text-xs text-slate-300 italic'; }
+    if (vs) { vs.textContent = 'sin valor'; vs.className = 'attr-value text-[13px] text-slate-300 italic'; }
     if (badge) { badge.className = 'attr-badge hidden'; badge.textContent = ''; }
     if (trigger) { trigger.classList.add('hidden'); trigger.textContent = ''; }
     cancelEdit(attr);
@@ -722,7 +722,7 @@ function resetUI() {
 
 function resetSession() {
   resetUI();
-  fetch(`${API_URL}/api/reset/${SESSION_ID}`, { method: 'POST', headers: _headers() }).catch(() => {});
+  fetch(`/api/reset/${SESSION_ID}`, { method: 'POST', headers: _headers() }).catch(() => {});
 }
 
 // ── Secciones colapsables ─────────────────────────────────────────

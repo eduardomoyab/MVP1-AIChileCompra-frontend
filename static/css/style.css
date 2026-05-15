@@ -70,9 +70,9 @@
 
 /* ── Ficha spinner (pequeño) ─────────────────────────── */
 .ficha-spinner {
-  width: 13px;
-  height: 13px;
-  border: 1.5px solid #c5d8f5;
+  width: 16px;
+  height: 16px;
+  border: 2px solid #c5d8f5;
   border-top-color: #154f96;
   border-radius: 50%;
   animation: spin 0.7s linear infinite;

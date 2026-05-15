@@ -13,6 +13,7 @@ Aplicación web construida con **Flask (Python)** que sirve la interfaz del asis
 | Estilos | Tailwind CSS (CDN) |
 | Interactividad | JavaScript (Vanilla) |
 | Streaming | Fetch API + ReadableStream (SSE) |
+| Generación de PDF | html2pdf.js 0.10.1 (html2canvas + jsPDF) |
 | Proxy HTTP | httpx (streaming) |
 | Contenerización | Docker |
 | Despliegue | Railway |
@@ -90,29 +91,41 @@ Define la aplicación Flask con tres responsabilidades:
 ### `static/js/app.js`
 Gestiona toda la interactividad del cliente:
 - **`readSSEStream()`** — consume el stream SSE usando `fetch` + `ReadableStream`
-- **`handleServerMessage()`** — despacha eventos del servidor (`thinking`, `assistant_chunk`, `ficha_update`, `price_update`, etc.)
+- **`handleServerMessage()`** — despacha eventos del servidor (`thinking`, `assistant_chunk`, `ficha_update`, `price_update`, `lgbm_price_update`, etc.); activa el badge rojo en la pestaña Ficha cuando llega una actualización en vista móvil
 - **`applyFichaUpdate()`** — actualiza atributos en la ficha técnica en tiempo real
-- **`renderPriceEstimate()`** — renderiza la distribución de precios con gráfico de rango
-- **`downloadFichaPDF()`** — genera y abre una ventana de impresión con la ficha formateada
+- **`renderPriceEstimate()`** — renderiza la estimación de precios históricos Compra Ágil con rango esperado (sin IVA y con IVA)
+- **`renderLgbmPriceEstimate()`** — renderiza la estimación de mercado externo con IA (modelos LightGBM), mostrando rango esperado sin revelar la tecnología subyacente
+- **`switchTab(tab)`** — alterna entre los paneles Chat y Ficha en vista móvil mediante la clase `.mobile-hidden`; oculta el badge de notificación al abrir la ficha
+- **`downloadFichaPDF()`** — genera y descarga un PDF directamente (sin diálogo de impresión) usando html2pdf.js; la sección de estimación de precios siempre ocupa una página separada en diseño de dos columnas
 
 ---
 
 ## Componentes de la interfaz
 
+La interfaz adapta su diseño según el tamaño de pantalla:
+
+- **Desktop (≥ 1024 px):** split view horizontal — Chat (46 %) a la izquierda y Ficha Técnica (54 %) a la derecha. Las tarjetas de precio quedan sticky en la parte superior del panel ficha mientras se hace scroll.
+- **Móvil (< 1024 px):** vista de pestaña única con barra de navegación Chat | Ficha. Un badge rojo animado aparece en la pestaña Ficha cuando se actualiza una estimación de precio.
+
 ```mermaid
 graph LR
-    subgraph UI["Interfaz (split view)"]
-        subgraph chat["Panel Chat (46%)"]
-            H["Header · Asistente IA"]
-            MSG["Área de mensajes\n(streaming)"]
-            INP["Input + botón enviar"]
+    subgraph UI["Interfaz"]
+        subgraph desktop["Desktop — split view"]
+            subgraph chat["Panel Chat (46%)"]
+                H["Header · Asistente IA"]
+                MSG["Área de mensajes\n(streaming)"]
+                INP["Input + botón enviar"]
+            end
+            subgraph ficha["Panel Ficha Técnica (54%)"]
+                FH["Header · PDF button"]
+                PROG["Barra de progreso\n(atributos completados)"]
+                PRICE["Estimación Compra Ágil\n(precios históricos)"]
+                LGBM["Estimación Mercado Externo · IA\n(modelo LightGBM)"]
+                ATTRS["Secciones colapsables\n(General / Procesador / RAM\nAlmacenamiento / Gráficos / Pantalla)"]
+            end
         end
-        subgraph ficha["Panel Ficha Técnica (54%)"]
-            FH["Header · PDF button"]
-            PROG["Barra de progreso\n(atributos completados)"]
-            LOAD["Indicador de carga\n(durante actualización)"]
-            PRICE["Estimación de precio\n(estadísticas históricas)"]
-            ATTRS["Secciones colapsables\n(General / Procesador / RAM\nAlmacenamiento / Gráficos\nPantalla / Identificación)"]
+        subgraph mobile["Móvil — pestañas"]
+            TABS["Barra de pestañas\nChat | Ficha · badge rojo"]
         end
     end
 ```
@@ -127,6 +140,15 @@ graph LR
 ```
 
 Cada atributo indica visualmente si fue inferido por el LLM, editado manualmente por el usuario, o complementado automáticamente desde el diccionario.
+
+### Estimación de precios (dos fuentes)
+
+| Tarjeta | Fuente | Etiqueta visible |
+|---|---|---|
+| Azul | Órdenes de compra reales (PostgreSQL) | Estimación · Compra Ágil |
+| Verde azulado | Modelo de IA preentrenado (LightGBM) | Estimación · Mercado Externo · IA |
+
+Ambas tarjetas muestran el **rango esperado** (P25–P75) en CLP sin IVA y con IVA. La terminología interna (percentiles, nombre del modelo) no se expone al usuario.
 
 ---
 

@@ -8,9 +8,9 @@ const SESSION_ID = crypto.randomUUID();
 const ATTRS = {
   tipo_equipo:                  { label: 'Tipo de equipo',       type: 'enum',    values: ['Laptop','AIO','Desktop','Otro'] },
   marca:                        { label: 'Marca',                type: 'dict' },
-  linea_producto:               { label: 'Línea de producto',    type: 'dict' },
   nombre_modelo:                { label: 'Modelo',               type: 'free' },
   procesador_principal:         { label: 'Procesador',           type: 'dict' },
+  linea_procesador:             { label: 'Línea procesador',     type: 'free',    readOnly: true },
   nucleos_procesador:           { label: 'Núcleos',              type: 'numeric', readOnly: true },
   hilos_procesador:             { label: 'Hilos',                type: 'numeric', readOnly: true },
   frecuencia_turbo_procesador_mhz: { label: 'Frec. Turbo (MHz)', type: 'numeric', readOnly: true },
@@ -26,7 +26,6 @@ const ATTRS = {
   pantalla_pulgadas:            { label: 'Pantalla (pulgadas)',  type: 'numeric' },
   sistema_operativo:            { label: 'Sistema operativo',    type: 'dict' },
   wifi_generacion:              { label: 'Wi-Fi',               type: 'enum',    values: ['Wi-Fi 7','Wi-Fi 6E','Wi-Fi 6','Wi-Fi 5','Wi-Fi 4'] },
-  part_number:                  { label: 'Part number',          type: 'free' },
 };
 
 const CORE_ATTRS = [
@@ -38,6 +37,7 @@ const CORE_ATTRS = [
 const state = {
   ficha: {},
   priceData: null,
+  lgbmData: null,
   priceLoading: false,
   sending: false,
   isTyping: false,
@@ -94,6 +94,11 @@ function handleServerMessage(data) {
     case 'ficha_update':
       data.updates.forEach(applyFichaUpdate);
       updateProgress();
+      // Mostrar badge en tab Ficha si el usuario está en el tab Chat (móvil)
+      if (document.getElementById('panel-ficha')?.classList.contains('mobile-hidden')) {
+        const badge = document.getElementById('ficha-tab-badge');
+        if (badge) badge.classList.remove('hidden');
+      }
       break;
 
     case 'questions':
@@ -109,6 +114,15 @@ function handleServerMessage(data) {
     case 'price_not_found':
       hidePriceLoading();
       document.getElementById('price-container').innerHTML = priceNotFoundHtml();
+      break;
+
+    case 'lgbm_price_update':
+      state.lgbmData = data.data;
+      renderLgbmPriceEstimate(data.data);
+      break;
+
+    case 'lgbm_price_not_found':
+      document.getElementById('lgbm-price-container').innerHTML = lgbmPriceNotFoundHtml();
       break;
 
     case 'error':
@@ -204,11 +218,10 @@ function showQuestions(questions) {
   wrap.id = 'question-chips';
   wrap.className = 'flex flex-wrap gap-2 animate-in';
   questions.forEach(q => {
-    const btn = document.createElement('button');
-    btn.className = 'px-4 py-2 text-[13px] bg-brand-50 border border-brand-200 text-brand-700 rounded-full hover:bg-brand-100 transition-colors';
-    btn.textContent = q;
-    btn.onclick = () => { setInput(q); document.getElementById('chat-input-field').focus(); };
-    wrap.appendChild(btn);
+    const chip = document.createElement('span');
+    chip.className = 'px-4 py-2 text-[13px] bg-brand-50 border border-brand-200 text-brand-700 rounded-full';
+    chip.textContent = q;
+    wrap.appendChild(chip);
   });
   container.appendChild(wrap);
   container.scrollTop = container.scrollHeight;
@@ -482,42 +495,39 @@ function renderPriceEstimate(data) {
   const range = (data.max - data.min) || 1;
   const leftPct  = ((data.p25  - data.min) / range) * 100;
   const widthPct = ((data.p75  - data.p25) / range) * 100;
-  const medPct   = ((data.median - data.min) / range) * 100;
+  const meanPct  = ((data.mean - data.min) / range) * 100;
 
   container.innerHTML = `
     <div class="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden animate-in">
-      <div class="flex items-center justify-between px-4 py-2 bg-gradient-to-r from-brand-700 to-brand-600">
+      <div class="flex items-center justify-between px-3 py-1.5 lg:px-4 lg:py-2 bg-gradient-to-r from-brand-700 to-brand-600">
         <div class="flex items-center gap-2">
           <svg class="w-3.5 h-3.5 text-white opacity-80" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
             <polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/>
           </svg>
-          <span class="text-[13px] font-semibold text-white">Estimación de Precio de Referencia</span>
+          <span class="text-[12px] lg:text-[13px] font-semibold text-white">Estimación · Compra Ágil</span>
         </div>
-        <span class="text-[12px] text-blue-200 opacity-80">${data.count.toLocaleString('es-CL')} ofertas similares</span>
+        <span class="text-[11px] lg:text-[12px] text-blue-200 opacity-80">${data.count.toLocaleString('es-CL')} ofertas</span>
       </div>
-      <div class="px-4 py-3">
-        <div class="flex items-end justify-between gap-4 mb-2.5">
+      <div class="px-3 py-2 lg:px-4 lg:py-3">
+        <div class="flex items-center justify-between gap-2 mb-1.5 lg:mb-2.5">
           <div>
-            <p class="text-3xl font-bold text-brand-700 leading-none">${fmt(data.median)}</p>
-            <p class="text-[13px] text-slate-400 mt-0.5">mediana · precio neto (sin IVA)</p>
-            <p class="text-[13px] font-semibold text-slate-600 mt-1">${fmt(data.median_iva)} <span class="font-normal text-slate-400">con IVA</span></p>
+            <p class="text-lg lg:text-3xl font-bold text-brand-700 leading-none">${fmt(data.mean)}</p>
+            <p class="text-[11px] lg:text-[13px] text-slate-400 mt-0.5">estimación sin IVA &nbsp;·&nbsp; <span class="font-semibold text-slate-600">${fmt(data.mean_iva)}</span> c/IVA</p>
           </div>
           <div class="text-right flex-shrink-0">
-            <p class="text-[12px] text-slate-400 mb-0.5">Rango P25 – P75</p>
-            <p class="text-[13px] font-medium text-slate-600">${fmt(data.p25)} – ${fmt(data.p75)}</p>
-            <p class="text-[11px] text-slate-400">${fmt(data.p25_iva)} – ${fmt(data.p75_iva)} c/IVA</p>
+            <p class="text-[10px] lg:text-[12px] text-slate-400 mb-0.5">Rango esperado</p>
+            <p class="text-[12px] lg:text-[13px] font-medium text-slate-600">${fmt(data.p25)} – ${fmt(data.p75)}</p>
+            <p class="text-[11px] text-slate-400 mt-0.5">${fmt(data.p25_iva)} – ${fmt(data.p75_iva)} c/IVA</p>
           </div>
         </div>
-        <div class="relative h-2 bg-slate-100 rounded-full mb-2">
+        <div class="relative h-1.5 lg:h-2 bg-slate-100 rounded-full mb-1.5 lg:mb-2">
           <div class="absolute top-0 h-full bg-brand-100 rounded-full"
                style="left:${leftPct.toFixed(1)}%;width:${widthPct.toFixed(1)}%"></div>
-          <div class="absolute top-1/2 -translate-y-1/2 w-3 h-3 bg-brand-600 rounded-full border-2 border-white shadow"
-               style="left:calc(${medPct.toFixed(1)}% - 6px)"></div>
+          <div class="absolute top-1/2 -translate-y-1/2 w-2.5 h-2.5 lg:w-3 lg:h-3 bg-brand-600 rounded-full border-2 border-white shadow"
+               style="left:calc(${meanPct.toFixed(1)}% - 5px)"></div>
         </div>
-        <div class="flex justify-between text-[10px] text-slate-400 border-t border-slate-100 pt-2">
-          <span>Mín: ${fmt(data.min)}</span>
-          <span class="text-slate-300 text-[11px]">${data.match_description}</span>
-          <span>Máx: ${fmt(data.max)}</span>
+        <div class="text-center text-[10px] text-slate-300 border-t border-slate-100 pt-1.5">
+          ${data.match_description}
         </div>
       </div>
     </div>`;
@@ -548,6 +558,66 @@ function priceEmptyHtml() {
     </div>`;
 }
 
+// ── Precio mercado externo (LightGBM) ────────────────────────────
+function renderLgbmPriceEstimate(data) {
+  const container = document.getElementById('lgbm-price-container');
+  if (!container) return;
+
+  const fmt = (n) => n != null
+    ? new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(n)
+    : '—';
+
+  const cat = data.category === 'Notebooks' ? 'Notebook' : 'All-in-One';
+  const range = (data.p75 - data.p25) || 1;
+  const meanPct = Math.max(0, Math.min(100, ((data.mean - data.p25) / range) * 100));
+
+  container.innerHTML = `
+    <div class="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden animate-in">
+      <div class="flex items-center justify-between px-3 py-1.5 lg:px-4 lg:py-2 bg-gradient-to-r from-teal-700 to-teal-600">
+        <div class="flex items-center gap-2">
+          <svg class="w-3.5 h-3.5 text-white opacity-80" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 010 20M12 2a15.3 15.3 0 000 20"/>
+          </svg>
+          <span class="text-[12px] lg:text-[13px] font-semibold text-white">Estimación · Mercado Externo · IA</span>
+        </div>
+        <span class="text-[11px] lg:text-[12px] text-teal-200 opacity-80">${cat}</span>
+      </div>
+      <div class="px-3 py-2 lg:px-4 lg:py-3">
+        <div class="flex items-center justify-between gap-2 mb-1.5 lg:mb-2.5">
+          <div>
+            <p class="text-lg lg:text-3xl font-bold text-teal-700 leading-none">${fmt(data.mean)}</p>
+            <p class="text-[11px] lg:text-[13px] text-slate-400 mt-0.5">precio estimado</p>
+          </div>
+          <div class="text-right flex-shrink-0">
+            <p class="text-[10px] lg:text-[12px] text-slate-400 mb-0.5">Rango esperado</p>
+            <p class="text-[12px] lg:text-[13px] font-medium text-slate-600">${fmt(data.p25)} – ${fmt(data.p75)}</p>
+          </div>
+        </div>
+        <div class="relative h-1.5 lg:h-2 bg-slate-100 rounded-full mb-1.5 lg:mb-2">
+          <div class="absolute top-0 h-full bg-teal-100 rounded-full" style="left:0%;width:100%"></div>
+          <div class="absolute top-1/2 -translate-y-1/2 w-2.5 h-2.5 lg:w-3 lg:h-3 bg-teal-600 rounded-full border-2 border-white shadow"
+               style="left:calc(${meanPct.toFixed(1)}% - 5px)"></div>
+        </div>
+        <div class="text-center text-[10px] text-slate-300 border-t border-slate-100 pt-1.5">
+          estimación con IA
+        </div>
+      </div>
+    </div>`;
+}
+
+function lgbmPriceNotFoundHtml() {
+  return `
+    <div class="bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 flex items-start gap-3">
+      <svg class="w-4 h-4 flex-shrink-0 text-slate-400 mt-0.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+        <circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 010 20M12 2a15.3 15.3 0 000 20"/>
+      </svg>
+      <div>
+        <p class="text-[13px] font-semibold text-slate-600">Sin estimación de mercado externo</p>
+        <p class="text-[12px] text-slate-400 mt-0.5 leading-snug">No se pudo obtener una estimación de mercado externo para este equipo (solo aplica a Laptops y All-in-One).</p>
+      </div>
+    </div>`;
+}
+
 // ── Ficha: indicador de carga ─────────────────────────────────────
 function showFichaLoading() {
   const el = document.getElementById('ficha-loading-bar');
@@ -561,13 +631,12 @@ function hideFichaLoading() {
 
 // ── Descarga PDF ──────────────────────────────────────────────────
 const PDF_SECTIONS = [
-  { label: 'General',           attrs: ['tipo_equipo','marca','linea_producto','nombre_modelo'] },
-  { label: 'Procesador',        attrs: ['procesador_principal','nucleos_procesador','hilos_procesador','frecuencia_turbo_procesador_mhz'] },
+  { label: 'General',           attrs: ['tipo_equipo','marca','nombre_modelo'] },
+  { label: 'Procesador',        attrs: ['procesador_principal','linea_procesador','nucleos_procesador','hilos_procesador','frecuencia_turbo_procesador_mhz'] },
   { label: 'Memoria RAM',       attrs: ['total_ram_gb','tecnologia_ram','frecuencia_ram_mhz'] },
   { label: 'Almacenamiento',    attrs: ['total_almacenamiento_gb','tecnologia_disco_principal','tipo_configuracion_discos'] },
   { label: 'Gráficos',          attrs: ['tiene_gpu_dedicada','gpu_dedicada_nombre','total_vram_gpu_gb'] },
   { label: 'Pantalla y Sistema',attrs: ['pantalla_pulgadas','sistema_operativo','wifi_generacion'] },
-  { label: 'Identificación',    attrs: ['part_number'] },
 ];
 
 function downloadFichaPDF() {
@@ -594,108 +663,154 @@ function downloadFichaPDF() {
       })
       .join('');
     if (!rows) continue;
-    sectionsHtml += `
-      <div class="sec">
-        <div class="sec-title">${sec.label}</div>
-        <table><tbody>${rows}</tbody></table>
+    sectionsHtml += `<div class="sec"><div class="sec-title">${sec.label}</div><table><tbody>${rows}</tbody></table></div>`;
+  }
+
+  // Página de precios: page break + diseño en dos columnas
+  const ca = state.priceData;
+  const lgbm = state.lgbmData;
+  const _stat = (lbl, val, border = '#dbeafe') =>
+    `<div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid ${border};">
+       <span style="font-size:10px;color:#64748b;">${lbl}</span>
+       <span style="font-size:10.5px;font-weight:700;color:#1e293b;">${val}</span>
+     </div>`;
+
+  let caCard = '';
+  if (ca) {
+    caCard = `
+      <div style="flex:1;border:1.5px solid #c5d8f5;border-radius:10px;overflow:hidden;">
+        <div style="background:#154f96;padding:20px 22px;">
+          <div style="font-size:9px;letter-spacing:.09em;text-transform:uppercase;color:rgba(255,255,255,.6);margin-bottom:8px;">Estimación · Compra Ágil</div>
+          <div style="font-size:32px;font-weight:900;color:#fff;line-height:1;">${fmt(ca.mean)}</div>
+          <div style="font-size:10px;color:rgba(255,255,255,.7);margin-top:5px;">estimación sin IVA</div>
+          <div style="font-size:13px;font-weight:600;color:rgba(255,255,255,.9);margin-top:4px;">${fmt(ca.mean_iva)} <span style="font-weight:400;font-size:10px;">con IVA</span></div>
+        </div>
+        <div style="background:#f0f7ff;padding:16px 22px;">
+          ${_stat('Rango esperado (sin IVA)', `${fmt(ca.p25)} – ${fmt(ca.p75)}`)}
+          ${_stat('Rango esperado (con IVA)', `${fmt(ca.p25_iva)} – ${fmt(ca.p75_iva)}`, 'transparent')}
+          <div style="font-size:9px;color:#94a3b8;margin-top:10px;font-style:italic;">Basado en ${ca.count.toLocaleString('es-CL')} ofertas · ${ca.match_description}</div>
+        </div>
       </div>`;
   }
 
-  let priceHtml = '';
-  if (state.priceData) {
-    const d = state.priceData;
-    priceHtml = `
-      <div class="sec price-sec">
-        <div class="sec-title price-title">Estimación de Precio de Referencia</div>
-        <p class="price-note">Basado en ${d.count.toLocaleString('es-CL')} ofertas en Compra Ágil · ${d.match_description}</p>
-        <table><tbody>
-          <tr><td class="lbl">Mediana sin IVA</td><td class="val price-main">${fmt(d.median)}</td></tr>
-          <tr><td class="lbl">Mediana con IVA</td><td class="val">${fmt(d.median_iva)}</td></tr>
-          <tr><td class="lbl">Rango P25–P75 sin IVA</td><td class="val">${fmt(d.p25)} – ${fmt(d.p75)}</td></tr>
-          <tr><td class="lbl">Rango P25–P75 con IVA</td><td class="val">${fmt(d.p25_iva)} – ${fmt(d.p75_iva)}</td></tr>
-          <tr><td class="lbl">Rango completo sin IVA</td><td class="val">${fmt(d.min)} – ${fmt(d.max)}</td></tr>
-        </tbody></table>
+  let lgbmCard = '';
+  if (lgbm) {
+    lgbmCard = `
+      <div style="flex:1;border:1.5px solid #99f6e4;border-radius:10px;overflow:hidden;">
+        <div style="background:#0f766e;padding:20px 22px;">
+          <div style="font-size:9px;letter-spacing:.09em;text-transform:uppercase;color:rgba(255,255,255,.6);margin-bottom:8px;">Estimación · Mercado Externo · IA</div>
+          <div style="font-size:32px;font-weight:900;color:#fff;line-height:1;">${fmt(lgbm.mean)}</div>
+          <div style="font-size:10px;color:rgba(255,255,255,.7);margin-top:5px;">precio estimado · ${lgbm.category}</div>
+        </div>
+        <div style="background:#f0fdfa;padding:16px 22px;">
+          ${_stat('Rango esperado', `${fmt(lgbm.p25)} – ${fmt(lgbm.p75)}`, 'transparent')}
+          <div style="font-size:9px;color:#94a3b8;margin-top:10px;font-style:italic;">Estimación con Inteligencia Artificial</div>
+        </div>
       </div>`;
   }
 
-  const html = `<!DOCTYPE html>
-<html lang="es">
-<head>
-<meta charset="UTF-8">
-<title>Ficha Técnica · Compra Ágil</title>
-<style>
-  *{margin:0;padding:0;box-sizing:border-box}
-  body{font-family:'Helvetica Neue',Arial,sans-serif;color:#1e293b;background:#fff;padding:36px 44px;max-width:780px;margin:0 auto}
-  .hdr{display:flex;align-items:center;justify-content:space-between;padding-bottom:18px;border-bottom:2.5px solid #0f3d78;margin-bottom:20px}
-  .hdr-logos{display:flex;align-items:center;gap:16px}
-  .hdr-center{text-align:center}
-  .hdr-center h1{font-size:17px;font-weight:700;color:#0f3d78;letter-spacing:-.01em}
-  .hdr-center p{font-size:10.5px;color:#64748b;margin-top:3px}
-  .logo{height:36px;object-fit:contain}
-  .logo-sm{height:30px;object-fit:contain}
-  .meta{display:flex;justify-content:space-between;background:#f8fafc;border:1px solid #e2e8f0;border-radius:7px;padding:9px 14px;margin-bottom:22px}
-  .meta p{font-size:10.5px;color:#64748b}
-  .meta strong{color:#334155}
-  .sec{margin-bottom:18px}
-  .sec-title{font-size:9.5px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:#0f3d78;background:#e8f0fb;padding:5px 11px;border-radius:5px;margin-bottom:7px}
-  table{width:100%;border-collapse:collapse}
-  tr{border-bottom:1px solid #f1f5f9}
-  tr:last-child{border-bottom:none}
-  .lbl{font-size:10.5px;color:#64748b;padding:5.5px 10px 5.5px 0;width:44%}
-  .val{font-size:11px;font-weight:600;color:#1e293b;padding:5.5px 0}
-  .price-sec{background:#f0f7ff;border:1px solid #c5d8f5;border-radius:8px;padding:14px}
-  .price-title{background:#0f3d78;color:#fff;margin:-14px -14px 11px;border-radius:6px 6px 0 0;padding:7px 14px}
-  .price-note{font-size:9.5px;color:#64748b;margin-bottom:9px;font-style:italic}
-  .price-main{font-size:15px;color:#0f3d78;font-weight:700}
-  .ftr{margin-top:28px;padding-top:14px;border-top:1px solid #e2e8f0;display:flex;justify-content:space-between;align-items:center}
-  .ftr p{font-size:9.5px;color:#94a3b8}
-  .badge{background:#0f3d78;color:#fff;font-size:8.5px;font-weight:700;padding:3px 8px;border-radius:4px;letter-spacing:.03em}
-  @media print{body{padding:16px}@page{margin:.8cm}}
-</style>
-</head>
-<body>
-  <div class="hdr">
-    <div class="hdr-logos">
-      <img src="${origin}/imagenes/logo-chilecompra.png" class="logo" alt="ChileCompra">
-      <img src="${origin}/imagenes/logo-OCP.png" class="logo-sm" alt="OCP">
-    </div>
-    <div class="hdr-center">
-      <h1>Ficha Técnica · Compra Ágil</h1>
-      <p>Especificación técnica generada con Asistente IA</p>
-    </div>
-    <div class="hdr-logos">
-      <img src="${origin}/imagenes/logo-UCBerkeley.png" class="logo-sm" alt="UC Berkeley">
-      <img src="${origin}/imagenes/logo-uch.png" class="logo" alt="Universidad de Chile">
-    </div>
-  </div>
-  <div class="meta">
-    <p>Generado el <strong>${now}</strong></p>
-    <p>Sesión <strong>${SESSION_ID.slice(0,8).toUpperCase()}</strong></p>
-  </div>
-  ${sectionsHtml}
-  ${priceHtml}
-  <div class="ftr">
-    <p>Asistente IA · Compra Ágil · Universidad de Chile</p>
-    <span class="badge">COMPRA ÁGIL</span>
-  </div>
-  <script>window.onload=()=>{window.print();}<\/script>
-</body>
-</html>`;
+  const pricePageHtml = (ca || lgbm) ? `
+    <div style="page-break-before:always;padding-top:32px;">
+      <div style="background:#0f3d78;color:white;padding:22px 28px;border-radius:10px;margin-bottom:22px;">
+        <div style="font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;color:rgba(255,255,255,.55);margin-bottom:6px;">Compra Ágil · Asistente IA</div>
+        <div style="font-size:22px;font-weight:800;">Estimación de Precios</div>
+        <div style="font-size:10.5px;color:rgba(255,255,255,.65);margin-top:4px;">Generado el ${now}</div>
+      </div>
+      <div style="display:flex;gap:18px;">
+        ${caCard}
+        ${lgbmCard}
+      </div>
+    </div>` : '';
 
-  const win = window.open('', '_blank');
-  if (!win) { alert('Permite ventanas emergentes para descargar el PDF.'); return; }
-  win.document.write(html);
-  win.document.close();
+  const css = `
+    *{margin:0;padding:0;box-sizing:border-box}
+    body{font-family:'Helvetica Neue',Arial,sans-serif;color:#1e293b;background:#fff}
+    .pdf-wrap{padding:36px 44px;max-width:780px;margin:0 auto}
+    .hdr{display:flex;align-items:center;justify-content:space-between;padding-bottom:18px;border-bottom:2.5px solid #0f3d78;margin-bottom:20px}
+    .hdr-logos{display:flex;align-items:center;gap:16px}
+    .hdr-center{text-align:center}
+    .hdr-center h1{font-size:17px;font-weight:700;color:#0f3d78;letter-spacing:-.01em}
+    .hdr-center p{font-size:10.5px;color:#64748b;margin-top:3px}
+    .logo{height:36px;object-fit:contain}
+    .logo-sm{height:30px;object-fit:contain}
+    .meta{display:flex;justify-content:space-between;background:#f8fafc;border:1px solid #e2e8f0;border-radius:7px;padding:9px 14px;margin-bottom:22px}
+    .meta p{font-size:10.5px;color:#64748b}
+    .meta strong{color:#334155}
+    .sec{margin-bottom:18px}
+    .sec-title{font-size:9.5px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:#0f3d78;background:#e8f0fb;padding:5px 11px;border-radius:5px;margin-bottom:7px}
+    table{width:100%;border-collapse:collapse}
+    tr{border-bottom:1px solid #f1f5f9}
+    tr:last-child{border-bottom:none}
+    .lbl{font-size:10.5px;color:#64748b;padding:5.5px 10px 5.5px 0;width:44%}
+    .val{font-size:11px;font-weight:600;color:#1e293b;padding:5.5px 0}
+    .ftr{margin-top:28px;padding-top:14px;border-top:1px solid #e2e8f0;display:flex;justify-content:space-between;align-items:center}
+    .ftr p{font-size:9.5px;color:#94a3b8}
+    .badge{background:#0f3d78;color:#fff;font-size:8.5px;font-weight:700;padding:3px 8px;border-radius:4px;letter-spacing:.03em}
+  `;
+
+  const contentHtml = `
+    <div class="hdr">
+      <div class="hdr-logos">
+        <img src="${origin}/imagenes/logo-chilecompra.png" class="logo" alt="ChileCompra">
+        <img src="${origin}/imagenes/logo-OCP.png" class="logo-sm" alt="OCP">
+      </div>
+      <div class="hdr-center">
+        <h1>Ficha Técnica · Compra Ágil</h1>
+        <p>Especificación técnica generada con Asistente IA</p>
+      </div>
+      <div class="hdr-logos">
+        <img src="${origin}/imagenes/logo-UCBerkeley.png" class="logo-sm" alt="UC Berkeley">
+        <img src="${origin}/imagenes/logo-uch2.png" class="logo" alt="Universidad de Chile">
+      </div>
+    </div>
+    <div class="meta">
+      <p>Generado el <strong>${now}</strong></p>
+      <p>Sesión <strong>${SESSION_ID.slice(0,8).toUpperCase()}</strong></p>
+    </div>
+    ${sectionsHtml}
+    ${pricePageHtml}
+    <div class="ftr">
+      <p>Asistente IA · Compra Ágil · Universidad de Chile</p>
+      <span class="badge">COMPRA ÁGIL</span>
+    </div>`;
+
+  // Contenedor temporal fuera de pantalla
+  const tmpEl = document.createElement('div');
+  tmpEl.style.cssText = 'position:fixed;top:0;left:-9999px;width:794px;background:white;z-index:-1;';
+  const styleEl = document.createElement('style');
+  styleEl.textContent = css;
+  const wrapEl = document.createElement('div');
+  wrapEl.className = 'pdf-wrap';
+  wrapEl.innerHTML = contentHtml;
+  tmpEl.appendChild(styleEl);
+  tmpEl.appendChild(wrapEl);
+  document.body.appendChild(tmpEl);
+
+  const filename = `ficha-tecnica-compra-agil-${SESSION_ID.slice(0,6).toLowerCase()}.pdf`;
+
+  html2pdf().set({
+    margin: [8, 8, 8, 8],
+    filename,
+    image:      { type: 'jpeg', quality: 0.97 },
+    html2canvas: { scale: 2, useCORS: true, logging: false },
+    jsPDF:      { unit: 'mm', format: 'a4', orientation: 'portrait' },
+  }).from(wrapEl).save().finally(() => {
+    document.body.removeChild(tmpEl);
+  });
 }
 
 // ── Reset ─────────────────────────────────────────────────────────
 function resetUI() {
   state.ficha = {};
   state.priceData = null;
+  state.lgbmData = null;
   state.isTyping = false;
   state.streamingBubble = null;
+  switchTab('chat');
   hidePriceLoading();
   hideFichaLoading();
+  const lgbmContainer = document.getElementById('lgbm-price-container');
+  if (lgbmContainer) lgbmContainer.innerHTML = '';
 
   const chatContainer = document.getElementById('chat-messages');
   Array.from(chatContainer.children).forEach(child => {
@@ -723,6 +838,29 @@ function resetUI() {
 function resetSession() {
   resetUI();
   fetch(`/api/reset/${SESSION_ID}`, { method: 'POST', headers: _headers() }).catch(() => {});
+}
+
+// ── Tabs móvil ────────────────────────────────────────────────────
+function switchTab(tab) {
+  const chatPanel  = document.getElementById('panel-chat');
+  const fichaPanel = document.getElementById('panel-ficha');
+  const tabChat    = document.getElementById('tab-btn-chat');
+  const tabFicha   = document.getElementById('tab-btn-ficha');
+  const badge      = document.getElementById('ficha-tab-badge');
+  if (!chatPanel || !fichaPanel) return;
+
+  if (tab === 'chat') {
+    chatPanel.classList.remove('mobile-hidden');
+    fichaPanel.classList.add('mobile-hidden');
+    if (tabChat)  { tabChat.classList.add('text-brand-700','font-semibold','border-brand-600','bg-brand-50'); tabChat.classList.remove('text-slate-500','font-medium','border-transparent','bg-white'); }
+    if (tabFicha) { tabFicha.classList.remove('text-brand-700','font-semibold','border-brand-600','bg-brand-50'); tabFicha.classList.add('text-slate-500','font-medium','border-transparent','bg-white'); }
+  } else {
+    chatPanel.classList.add('mobile-hidden');
+    fichaPanel.classList.remove('mobile-hidden');
+    if (tabFicha) { tabFicha.classList.add('text-brand-700','font-semibold','border-brand-600','bg-brand-50'); tabFicha.classList.remove('text-slate-500','font-medium','border-transparent','bg-white'); }
+    if (tabChat)  { tabChat.classList.remove('text-brand-700','font-semibold','border-brand-600','bg-brand-50'); tabChat.classList.add('text-slate-500','font-medium','border-transparent','bg-white'); }
+    if (badge) badge.classList.add('hidden');
+  }
 }
 
 // ── Secciones colapsables ─────────────────────────────────────────

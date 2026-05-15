@@ -28,31 +28,53 @@
   </script>
 
   <link rel="stylesheet" href="/static/css/style.css" />
+  <style>
+    @media (max-width: 1023px) { .mobile-hidden { display: none !important; } }
+  </style>
 </head>
 
 <body class="h-screen flex flex-col bg-slate-100 overflow-hidden">
 
   <!-- ══ Header ════════════════════════════════════════════════════ -->
-  <header class="h-[74px] bg-white border-b border-slate-200 flex items-center justify-between px-8 flex-shrink-0 shadow-sm z-10">
-    <div class="flex items-center gap-5">
-      <img src="/imagenes/logo-chilecompra.png" class="h-11 object-contain" alt="ChileCompra" />
-      <img src="/imagenes/logo-OCP.png"         class="h-10 object-contain" alt="OCP" />
+  <header class="h-[52px] lg:h-[74px] bg-white border-b border-slate-200 flex items-center justify-between px-2 lg:px-8 flex-shrink-0 shadow-sm z-10">
+    <div class="flex items-center gap-1 lg:gap-5">
+      <img src="/imagenes/logo-chilecompra.png" class="h-6 lg:h-11 w-auto max-w-[64px] lg:max-w-none object-contain" alt="ChileCompra" />
+      <img src="/imagenes/logo-OCP.png"         class="h-5 lg:h-10 w-auto max-w-[48px] lg:max-w-none object-contain" alt="OCP" />
     </div>
-    <div class="flex flex-col items-center select-none">
-      <p class="text-[15px] font-semibold text-brand-700 tracking-tight">Asistente IA · Compra Ágil</p>
-      <p class="text-[13px] text-slate-400 font-medium">Asistente de Especificación Técnica</p>
+    <div class="flex flex-col items-center select-none px-1">
+      <p class="text-[11px] lg:text-[15px] font-semibold text-brand-700 tracking-tight whitespace-nowrap">Asistente IA · Compra Ágil</p>
+      <p class="hidden lg:block text-[13px] text-slate-400 font-medium">Asistente de Especificación Técnica</p>
     </div>
-    <div class="flex items-center gap-5">
-      <img src="/imagenes/logo-UCBerkeley.png"  class="h-10 object-contain" alt="UC Berkeley" />
-      <img src="/imagenes/logo-uch.png"         class="h-11 object-contain" alt="Universidad de Chile" />
+    <div class="flex items-center gap-1 lg:gap-5">
+      <img src="/imagenes/logo-UCBerkeley.png"  class="h-5 lg:h-10 w-auto max-w-[48px] lg:max-w-none object-contain" alt="UC Berkeley" />
+      <img src="/imagenes/logo-uch2.png"        class="h-6 lg:h-11 w-auto max-w-[64px] lg:max-w-none object-contain" alt="Universidad de Chile" />
     </div>
   </header>
 
   <!-- ══ Layout principal ══════════════════════════════════════════ -->
-  <main class="flex-1 flex overflow-hidden">
+  <main class="flex-1 flex flex-col lg:flex-row overflow-hidden">
 
-    <!-- ─── PANEL CHAT (izquierda ~46%) ────────────────────────── -->
-    <section class="w-[46%] flex flex-col border-r border-slate-200 bg-white overflow-hidden">
+    <!-- ─── Tabs móvil (ocultos en desktop) ──────────────────────── -->
+    <div class="lg:hidden flex border-b border-slate-200 bg-white flex-shrink-0 z-10 shadow-sm">
+      <button id="tab-btn-chat" onclick="switchTab('chat')"
+              class="flex-1 flex items-center justify-center gap-2 py-3 text-[13px] font-semibold text-brand-700 border-b-2 border-brand-600 bg-brand-50 transition-colors">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+          <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/>
+        </svg>
+        Chat
+      </button>
+      <button id="tab-btn-ficha" onclick="switchTab('ficha')"
+              class="flex-1 flex items-center justify-center gap-2 py-3 text-[13px] font-medium text-slate-500 border-b-2 border-transparent transition-colors">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+          <path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/>
+        </svg>
+        Ficha
+        <span id="ficha-tab-badge" class="hidden w-2.5 h-2.5 rounded-full bg-red-500 animate-pulse ml-1"></span>
+      </button>
+    </div>
+
+    <!-- ─── PANEL CHAT (izquierda ~46% en desktop, full en móvil) ── -->
+    <section id="panel-chat" class="flex-1 flex flex-col border-r border-slate-200 bg-white overflow-hidden lg:flex-none lg:w-[46%]">
 
       <!-- Chat header -->
       <div class="flex items-center gap-3 px-5 py-4 bg-brand-700 flex-shrink-0">
@@ -134,8 +156,8 @@
     </section><!-- /chat panel -->
 
 
-    <!-- ─── PANEL FICHA (derecha) ───────────────────────────────── -->
-    <section class="flex-1 flex flex-col bg-slate-50 overflow-hidden">
+    <!-- ─── PANEL FICHA (derecha en desktop, full en móvil) ──────── -->
+    <section id="panel-ficha" class="mobile-hidden flex-1 flex flex-col bg-slate-50 overflow-hidden">
 
       <!-- Ficha header -->
       <div class="flex items-center gap-3 px-5 py-4 bg-white border-b border-slate-200 flex-shrink-0 shadow-sm">
@@ -183,24 +205,26 @@
         <p class="text-[13px] text-brand-700 font-medium">Actualizando ficha técnica...</p>
       </div>
 
-      <!-- ══ ESTIMACIÓN PRECIO (siempre visible, fuera del scroll) ══ -->
-      <div id="price-container" class="flex-shrink-0 px-4 pt-3">
+      <!-- Área scrollable única: precios sticky en desktop + secciones ficha -->
+      <div class="flex-1 overflow-y-auto scrollbar-thin">
 
-        <div class="bg-white border border-dashed border-slate-200 rounded-xl px-4 py-3 flex items-center gap-3 text-slate-400">
-          <svg class="w-4 h-4 flex-shrink-0 text-slate-300" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
-            <polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/>
-            <polyline points="17 6 23 6 23 12"/>
-          </svg>
-          <p class="text-[13px] leading-snug">La estimación de precio aparecerá cuando la ficha tenga suficientes datos</p>
+        <!-- Precios: sticky en desktop, scrollable en móvil -->
+        <div class="lg:sticky lg:top-0 lg:z-10 lg:bg-slate-50">
+          <div id="price-container" class="px-2 pt-2 lg:px-4 lg:pt-3">
+            <div class="bg-white border border-dashed border-slate-200 rounded-xl px-4 py-3 flex items-center gap-3 text-slate-400">
+              <svg class="w-4 h-4 flex-shrink-0 text-slate-300" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
+                <polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/>
+                <polyline points="17 6 23 6 23 12"/>
+              </svg>
+              <p class="text-[13px] leading-snug">La estimación de precio aparecerá cuando la ficha tenga suficientes datos</p>
+            </div>
+          </div>
+          <div id="lgbm-price-container" class="px-2 pt-1 lg:px-4 lg:pt-2"></div>
+          <div class="h-px bg-slate-200 mx-4 mt-3"></div>
         </div>
 
-      </div>
-
-      <!-- Separador visual -->
-      <div class="h-px bg-slate-200 mx-4 mt-3 flex-shrink-0"></div>
-
-      <!-- Cuerpo ficha (SCROLLABLE) -->
-      <div class="flex-1 overflow-y-auto px-4 py-3 space-y-2 scrollbar-thin">
+        <!-- Cuerpo ficha -->
+        <div class="px-4 py-3 space-y-2">
 
         <!-- ── General ── -->
         <div class="ficha-section bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm" id="section-general">
@@ -211,7 +235,7 @@
                 <rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/>
               </svg>
               <span class="text-[13px] font-semibold text-slate-600 uppercase tracking-wider">General</span>
-              <span class="section-count text-[12px] text-slate-400" id="section-count-general">0/4</span>
+              <span class="section-count text-[12px] text-slate-400" id="section-count-general">0/3</span>
             </div>
             <svg id="section-chevron-general" class="section-chevron open w-5 h-5 text-slate-400 transition-transform"
                  fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
@@ -251,22 +275,6 @@
                 <div class="attr-edit-wrap hidden w-full"></div>
               </div>
             </div>
-            <div class="attr-row group py-2.5 px-3 rounded-lg hover:bg-slate-50 flex items-start gap-2 transition-colors" id="attr-linea_producto" data-attr="linea_producto" data-type="dict">
-              <div class="min-w-[168px] max-w-[168px] flex-shrink-0 pt-0.5">
-                <p class="text-[13px] font-medium text-slate-500 leading-tight">Línea de producto</p>
-                <p class="attr-trigger text-[12px] text-amber-600 mt-0.5 hidden"></p>
-              </div>
-              <div class="attr-value-col flex-1 min-h-[30px]">
-                <div class="attr-display-wrap flex items-center gap-1.5">
-                  <span class="attr-value text-[13px] text-slate-300 italic">sin valor</span>
-                  <span class="attr-badge hidden"></span>
-                  <button class="attr-edit-btn ml-auto p-1 text-slate-300 hover:text-brand-500 opacity-0 group-hover:opacity-100 transition-opacity" onclick="startEdit('linea_producto')">
-                    <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-                  </button>
-                </div>
-                <div class="attr-edit-wrap hidden w-full"></div>
-              </div>
-            </div>
             <div class="attr-row group py-2.5 px-3 rounded-lg hover:bg-slate-50 flex items-start gap-2 transition-colors" id="attr-nombre_modelo" data-attr="nombre_modelo" data-type="free">
               <div class="min-w-[168px] max-w-[168px] flex-shrink-0 pt-0.5">
                 <p class="text-[13px] font-medium text-slate-500 leading-tight">Modelo</p>
@@ -294,7 +302,7 @@
                 <rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><line x1="9" y1="1" x2="9" y2="4"/><line x1="15" y1="1" x2="15" y2="4"/><line x1="9" y1="20" x2="9" y2="23"/><line x1="15" y1="20" x2="15" y2="23"/><line x1="20" y1="9" x2="23" y2="9"/><line x1="20" y1="14" x2="23" y2="14"/><line x1="1" y1="9" x2="4" y2="9"/><line x1="1" y1="14" x2="4" y2="14"/>
               </svg>
               <span class="text-[13px] font-semibold text-slate-600 uppercase tracking-wider">Procesador</span>
-              <span class="section-count text-[12px] text-slate-400" id="section-count-procesador">0/4</span>
+              <span class="section-count text-[12px] text-slate-400" id="section-count-procesador">0/5</span>
             </div>
             <svg id="section-chevron-procesador" class="section-chevron open w-5 h-5 text-slate-400 transition-transform" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
               <polyline points="18 15 12 9 6 15"/>
@@ -315,6 +323,15 @@
                   </button>
                 </div>
                 <div class="attr-edit-wrap hidden w-full"></div>
+              </div>
+            </div>
+            <div class="attr-row py-2.5 px-3 rounded-lg flex items-start gap-2" id="attr-linea_procesador" data-attr="linea_procesador" data-readonly="true">
+              <div class="min-w-[168px] max-w-[168px] flex-shrink-0 pt-0.5">
+                <p class="text-[13px] font-medium text-slate-400 leading-tight">Línea procesador</p>
+              </div>
+              <div class="attr-value-col flex-1 min-h-[30px] flex items-center gap-1.5">
+                <span class="attr-value text-[13px] text-slate-300 italic">sin valor</span>
+                <span class="attr-badge hidden"></span>
               </div>
             </div>
             <div class="attr-row py-2.5 px-3 rounded-lg flex items-start gap-2" id="attr-nucleos_procesador" data-attr="nucleos_procesador" data-readonly="true">
@@ -597,49 +614,18 @@
           </div>
         </div>
 
-        <!-- ── Identificación ── -->
-        <div class="ficha-section bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm" id="section-identificacion">
-          <button class="section-toggle w-full flex items-center justify-between px-5 py-3 hover:bg-slate-50 transition-colors" onclick="toggleSection('identificacion')">
-            <div class="flex items-center gap-2">
-              <svg class="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                <path d="M20.59 13.41l-7.17 7.17a2 2 0 01-2.83 0L2 12V2h10l8.59 8.59a2 2 0 010 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/>
-              </svg>
-              <span class="text-[13px] font-semibold text-slate-600 uppercase tracking-wider">Identificación</span>
-              <span class="section-count text-[12px] text-slate-400" id="section-count-identificacion">0/1</span>
-            </div>
-            <svg id="section-chevron-identificacion" class="section-chevron open w-5 h-5 text-slate-400 transition-transform" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-              <polyline points="18 15 12 9 6 15"/>
-            </svg>
-          </button>
-          <div id="section-body-identificacion" class="divide-y divide-slate-50 px-2 pb-1">
-            <div class="attr-row group py-2.5 px-3 rounded-lg hover:bg-slate-50 flex items-start gap-2 transition-colors" id="attr-part_number" data-attr="part_number" data-type="free">
-              <div class="min-w-[168px] max-w-[168px] flex-shrink-0 pt-0.5">
-                <p class="text-[13px] font-medium text-slate-500 leading-tight">Part number</p>
-                <p class="attr-trigger text-[12px] text-amber-600 mt-0.5 hidden"></p>
-              </div>
-              <div class="attr-value-col flex-1 min-h-[30px]">
-                <div class="attr-display-wrap flex items-center gap-1.5">
-                  <span class="attr-value text-[13px] text-slate-300 italic">sin valor</span>
-                  <span class="attr-badge hidden"></span>
-                  <button class="attr-edit-btn ml-auto p-1 text-slate-300 hover:text-brand-500 opacity-0 group-hover:opacity-100 transition-opacity" onclick="startEdit('part_number')">
-                    <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-                  </button>
-                </div>
-                <div class="attr-edit-wrap hidden w-full"></div>
-              </div>
-            </div>
-          </div>
-        </div>
-
         <!-- Padding final -->
         <div class="h-2"></div>
 
-      </div><!-- /ficha body -->
+        </div><!-- /ficha body -->
+
+      </div><!-- /scrollable area -->
 
     </section><!-- /ficha panel -->
 
   </main>
 
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
   <script src="/static/js/app.js"></script>
 </body>
 </html>

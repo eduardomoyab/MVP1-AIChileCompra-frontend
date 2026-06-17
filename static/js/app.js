@@ -121,6 +121,12 @@ function handleServerMessage(data) {
       document.getElementById('price-container').innerHTML = priceNotFoundHtml();
       break;
 
+    case 'blocked':
+      hideTyping();
+      state.streamingBubble = null;
+      appendBlockedMessage(data.message);
+      break;
+
     case 'error':
       hideTyping();
       state.streamingBubble = null;
@@ -156,6 +162,27 @@ function appendMessage(role, content) {
   const emptyState = document.getElementById('chat-empty');
   if (emptyState) emptyState.style.display = 'none';
 
+  container.appendChild(wrap);
+  container.scrollTop = container.scrollHeight;
+}
+
+function appendBlockedMessage(reason) {
+  const container = document.getElementById('chat-messages');
+  const wrap = document.createElement('div');
+  wrap.className = 'flex gap-3 justify-start animate-in';
+  wrap.innerHTML = `
+    <div class="w-9 h-9 rounded-full bg-amber-100 border border-amber-200 flex items-center justify-center flex-shrink-0 mt-1">
+      <svg class="w-4 h-4 text-amber-600" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v4m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/>
+      </svg>
+    </div>
+    <div class="max-w-[82%] px-4 py-3 text-[14px] leading-relaxed bg-amber-50 border border-amber-200 rounded-2xl rounded-tl-sm">
+      <p class="font-semibold text-amber-800 mb-1">Consulta fuera del ámbito</p>
+      <p class="text-amber-700 text-[13px]">Este asistente está diseñado exclusivamente para ayudarte a especificar equipos computacionales en Compra Ágil.</p>
+      ${reason ? `<p class="text-amber-600 text-[12px] mt-1.5 italic">${escapeHtml(reason)}</p>` : ''}
+    </div>`;
+  const emptyState = document.getElementById('chat-empty');
+  if (emptyState) emptyState.style.display = 'none';
   container.appendChild(wrap);
   container.scrollTop = container.scrollHeight;
 }

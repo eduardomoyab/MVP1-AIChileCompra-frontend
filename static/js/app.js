@@ -906,16 +906,25 @@ function _renderOfferCards() {
     return 0;
   });
 
+  const _iconExternal = `<svg class="w-3 h-3" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/></svg>`;
+  const _iconDoc     = `<svg class="w-3 h-3" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>`;
+  const _btnOk   = (href, icon, label) => `<a href="${href}" target="_blank" rel="noopener" class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-semibold border transition-colors ${icon === _iconDoc ? 'bg-teal-50 text-teal-700 border-teal-200 hover:bg-teal-100 hover:border-teal-400' : 'bg-brand-50 text-brand-700 border-brand-200 hover:bg-brand-100 hover:border-brand-400'}">${icon}${label}</a>`;
+  const _btnOff  = (icon, label) => `<span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-medium border bg-slate-50 text-slate-400 border-slate-200">${icon}${label}</span>`;
+
   cards.innerHTML = sorted.map(o => {
-    const ocLinks = (o.oc_urls || []).map((url, i) =>
-      `<a href="${url}" target="_blank" rel="noopener" class="inline-flex items-center gap-1 text-[10px] text-brand-600 hover:text-brand-800 hover:underline font-medium">
-        <svg class="w-2.5 h-2.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/></svg>
-        ${o.oc_codes[i] || 'OC'}
-      </a>`
+    // OC buttons (puede haber múltiples)
+    const ocBtns = (o.oc_urls || []).map((url, i) =>
+      _btnOk(url, _iconExternal, o.oc_codes[i] || 'Ver OC')
     );
-    const linksHtml = ocLinks.length
-      ? ocLinks.join('')
-      : `<span class="text-[10px] text-slate-400 italic">OC no disponible, ver en portal Mercado Público</span>`;
+    const ocSection = ocBtns.length
+      ? ocBtns.join('')
+      : _btnOff(_iconExternal, 'OC no disponible');
+
+    // Buscador Compra Ágil
+    const caSection = o.ca_available
+      ? _btnOk(o.ca_url, _iconDoc, 'Detalle Compra Ágil')
+      : _btnOff(_iconDoc, 'Ficha no disponible');
+
     return `
       <div class="bg-slate-50 border border-slate-100 rounded-lg px-3 py-2">
         <div class="flex items-start justify-between gap-2">
@@ -928,7 +937,10 @@ function _renderOfferCards() {
             <p class="text-[10px] text-slate-400">${fmt(o.precio_unitario_iva)} c/IVA</p>
           </div>
         </div>
-        ${linksHtml ? `<div class="flex flex-wrap gap-2 mt-1.5">${linksHtml}</div>` : ''}
+        <div class="flex flex-wrap gap-1.5 mt-1.5">
+          ${ocSection}
+          ${caSection}
+        </div>
       </div>`;
   }).join('');
 }

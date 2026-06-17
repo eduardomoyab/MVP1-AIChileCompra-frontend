@@ -772,7 +772,7 @@ function renderPriceEstimate(data) {
   const widthPct = ((data.p75  - data.p25) / range) * 100;
   const meanPct  = ((data.mean - data.min) / range) * 100;
 
-  const broadWarning = data.count > 800 ? `
+  const broadWarning = data.broad_warning ? `
     <div class="flex items-start gap-2.5 bg-amber-50 border border-amber-300 rounded-lg px-3 py-2.5 mt-2">
       <svg class="w-4 h-4 flex-shrink-0 text-amber-500 mt-0.5" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
         <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v4m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/>
@@ -913,8 +913,9 @@ function _renderOfferCards() {
 
   cards.innerHTML = sorted.map(o => {
     // OC buttons (puede haber múltiples)
-    const ocBtns = (o.oc_urls || []).map((url, i) =>
-      _btnOk(url, _iconExternal, o.oc_codes[i] || 'Ver OC')
+    const ocUrls = o.oc_urls || [];
+    const ocBtns = ocUrls.map((url, i) =>
+      _btnOk(url, _iconExternal, ocUrls.length === 1 ? 'Ver OC' : `OC ${i + 1}`)
     );
     const ocSection = ocBtns.length
       ? ocBtns.join('')

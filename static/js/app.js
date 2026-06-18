@@ -113,6 +113,9 @@ function handleServerMessage(data) {
       _offersData = [];
       _offersFetched = false;
       _offersSort = 'fecha_desc';
+      _offersGroup = 'none';
+      _offersExpanded = new Set();
+      _offersGroupKeys = [];
       renderPriceEstimate(data.data);
       break;
 
@@ -233,21 +236,8 @@ function appendStreamingChunk(delta) {
   container.scrollTop = container.scrollHeight;
 }
 
-function showQuestions(questions) {
-  clearQuestions();
-  if (!questions || !questions.length) return;
-  const container = document.getElementById('chat-messages');
-  const wrap = document.createElement('div');
-  wrap.id = 'question-chips';
-  wrap.className = 'flex flex-wrap gap-2 animate-in';
-  questions.forEach(q => {
-    const chip = document.createElement('span');
-    chip.className = 'px-4 py-2 text-[13px] bg-brand-50 border border-brand-200 text-brand-700 rounded-full';
-    chip.textContent = q;
-    wrap.appendChild(chip);
-  });
-  container.appendChild(wrap);
-  container.scrollTop = container.scrollHeight;
+function showQuestions(_questions) {
+  // chips desactivados: el texto repetía la pregunta del asistente sin aportar valor
 }
 
 function clearQuestions() {
@@ -866,6 +856,9 @@ function renderPriceEstimate(data) {
 
 let _offersData = [];
 let _offersSort = 'fecha_desc';
+let _offersGroup = 'none'; // 'none' | 'proveedor' | 'anio'
+let _offersExpanded = new Set(); // claves de grupos expandidos (default: todos colapsados)
+let _offersGroupKeys = [];       // orden de grupos del render actual, para onclick por índice
 let _offersFetched = false;
 
 function toggleOffers() {
@@ -894,17 +887,35 @@ async function fetchOffers() {
 }
 
 function setOffersSort(key) {
-  // toggle asc/desc if same key
   if (_offersSort.startsWith(key)) {
     _offersSort = _offersSort.endsWith('_desc') ? key + '_asc' : key + '_desc';
   } else {
     _offersSort = key + '_desc';
   }
-  _updateSortButtons();
+  _updateOfferControls();
   _renderOfferCards();
 }
 
-function _updateSortButtons() {
+function setOffersGroup(key) {
+  _offersGroup = _offersGroup === key ? 'none' : key;
+  _offersExpanded = new Set();
+  _offersGroupKeys = [];
+  _updateOfferControls();
+  _renderOfferCards();
+}
+
+function toggleOfferGroup(idx) {
+  const key = _offersGroupKeys[idx];
+  if (key === undefined) return;
+  if (_offersExpanded.has(key)) {
+    _offersExpanded.delete(key);
+  } else {
+    _offersExpanded.add(key);
+  }
+  _renderOfferCards();
+}
+
+function _updateOfferControls() {
   ['fecha', 'precio'].forEach(key => {
     const btn = document.getElementById(`offers-sort-${key}`);
     if (!btn) return;
@@ -913,7 +924,15 @@ function _updateSortButtons() {
     btn.className = `inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-medium transition-colors ${
       active ? 'bg-brand-100 text-brand-700' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'
     }`;
-    btn.innerHTML = (key === 'fecha' ? 'Fecha' : 'Precio') + ' ' + (active ? (asc ? '↑' : '↓') : '↓');
+    btn.innerHTML = (key === 'fecha' ? 'Fecha' : 'Precio') + (active ? (asc ? ' ↑' : ' ↓') : ' ↓');
+  });
+  ['proveedor', 'anio'].forEach(key => {
+    const btn = document.getElementById(`offers-group-${key}`);
+    if (!btn) return;
+    const active = _offersGroup === key;
+    btn.className = `inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-medium transition-colors ${
+      active ? 'bg-violet-100 text-violet-700' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'
+    }`;
   });
 }
 
@@ -926,49 +945,84 @@ function _renderOfferCards() {
     : '—';
 
   const sorted = [..._offersData].sort((a, b) => {
-    if (_offersSort === 'fecha_desc') return (b.fecha_modificacion || '').localeCompare(a.fecha_modificacion || '');
-    if (_offersSort === 'fecha_asc')  return (a.fecha_modificacion || '').localeCompare(b.fecha_modificacion || '');
+    if (_offersSort === 'fecha_desc')  return (b.fecha_modificacion || '').localeCompare(a.fecha_modificacion || '');
+    if (_offersSort === 'fecha_asc')   return (a.fecha_modificacion || '').localeCompare(b.fecha_modificacion || '');
     if (_offersSort === 'precio_desc') return (b.precio_unitario || 0) - (a.precio_unitario || 0);
     if (_offersSort === 'precio_asc')  return (a.precio_unitario || 0) - (b.precio_unitario || 0);
     return 0;
   });
 
   const _iconExternal = `<svg class="w-3 h-3" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/></svg>`;
-  const _iconDoc     = `<svg class="w-3 h-3" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>`;
-  const _btnOk   = (href, icon, label) => `<a href="${href}" target="_blank" rel="noopener" class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-semibold border transition-colors ${icon === _iconDoc ? 'bg-teal-50 text-teal-700 border-teal-200 hover:bg-teal-100 hover:border-teal-400' : 'bg-brand-50 text-brand-700 border-brand-200 hover:bg-brand-100 hover:border-brand-400'}">${icon}${label}</a>`;
-  const _btnOff  = (icon, label) => `<span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-medium border bg-slate-50 text-slate-400 border-slate-200">${icon}${label}</span>`;
+  const _iconDoc      = `<svg class="w-3 h-3" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>`;
+  const _btnOk  = (href, icon, label) => `<a href="${href}" target="_blank" rel="noopener" class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-semibold border transition-colors ${icon === _iconDoc ? 'bg-teal-50 text-teal-700 border-teal-200 hover:bg-teal-100 hover:border-teal-400' : 'bg-brand-50 text-brand-700 border-brand-200 hover:bg-brand-100 hover:border-brand-400'}">${icon}${label}</a>`;
+  const _btnOff = (icon, label) => `<span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-medium border bg-slate-50 text-slate-400 border-slate-200">${icon}${label}</span>`;
 
-  cards.innerHTML = sorted.map(o => {
-    // OC buttons (puede haber múltiples)
+  const renderCard = (o, hideProvider = false) => {
     const ocUrls = o.oc_urls || [];
     const ocBtns = ocUrls.map((url, i) =>
       _btnOk(url, _iconExternal, ocUrls.length === 1 ? 'Ver OC' : `OC ${i + 1}`)
     );
-    const ocSection = ocBtns.length
-      ? ocBtns.join('')
-      : _btnOff(_iconExternal, 'OC no disponible');
-
-    // Buscador Compra Ágil
+    const ocSection = ocBtns.length ? ocBtns.join('') : _btnOff(_iconExternal, 'OC no disponible');
     const caSection = o.ca_available
       ? _btnOk(o.ca_url, _iconDoc, 'Detalle Compra Ágil')
       : _btnOff(_iconDoc, 'Ficha no disponible');
-
     return `
       <div class="bg-slate-50 border border-slate-100 rounded-lg px-3 py-2">
         <div class="flex items-start justify-between gap-2">
           <div class="flex-1 min-w-0">
-            ${o.descripcion ? `<p class="text-[11px] text-slate-600 leading-snug mb-1">${o.descripcion}</p>` : ''}
+            ${!hideProvider && o.razon_social ? `<p class="text-[12px] font-semibold text-slate-800 leading-tight mb-0.5">${o.razon_social}</p>` : ''}
+            ${o.descripcion ? `<p class="text-[11px] text-slate-500 leading-snug mb-1">${o.descripcion}</p>` : ''}
             <p class="text-[10px] text-slate-400">${o.codigo_requerimiento || ''} ${o.fecha_modificacion ? '· ' + o.fecha_modificacion : ''}</p>
           </div>
           <div class="text-right flex-shrink-0">
-            <p class="text-[12px] font-semibold text-slate-700">${fmt(o.precio_unitario)}</p>
-            <p class="text-[10px] text-slate-400">${fmt(o.precio_unitario_iva)} c/IVA</p>
+            <p class="text-[14px] font-semibold text-slate-700">${fmt(o.precio_unitario)}</p>
+            <p class="text-[12px] text-slate-400">${fmt(o.precio_unitario_iva)} c/IVA</p>
           </div>
         </div>
-        <div class="flex flex-wrap gap-1.5 mt-1.5">
-          ${ocSection}
-          ${caSection}
-        </div>
+        <div class="flex flex-wrap gap-1.5 mt-1.5">${ocSection}${caSection}</div>
+      </div>`;
+  };
+
+  if (_offersGroup === 'none') {
+    cards.innerHTML = sorted.map(o => renderCard(o)).join('');
+    return;
+  }
+
+  const getGroupKey = (o) => {
+    if (_offersGroup === 'proveedor') return o.razon_social || 'Proveedor no Identificado';
+    if (_offersGroup === 'anio')      return o.fecha_modificacion ? o.fecha_modificacion.slice(0, 4) : '(Sin fecha)';
+    return '';
+  };
+
+  const grouped = new Map();
+  for (const o of sorted) {
+    const key = getGroupKey(o);
+    if (!grouped.has(key)) grouped.set(key, []);
+    grouped.get(key).push(o);
+  }
+
+  const groupKeys = [...grouped.keys()].sort((a, b) =>
+    _offersGroup === 'anio' ? b.localeCompare(a) : a.localeCompare(b, 'es')
+  );
+  _offersGroupKeys = groupKeys;
+
+  const hideProvider = _offersGroup === 'proveedor';
+  const _chevronDown  = `<svg class="w-3 h-3 flex-shrink-0 text-slate-400 transition-transform" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"/></svg>`;
+  const _chevronRight = `<svg class="w-3 h-3 flex-shrink-0 text-slate-400 transition-transform" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"/></svg>`;
+
+  cards.innerHTML = groupKeys.map((key, idx) => {
+    const items = grouped.get(key);
+    const expanded = _offersExpanded.has(key);
+    return `
+      <div class="mb-1">
+        <button onclick="toggleOfferGroup(${idx})"
+          class="w-full flex items-center gap-2 px-1 py-1.5 rounded-md hover:bg-slate-100 transition-colors cursor-pointer">
+          ${expanded ? _chevronDown : _chevronRight}
+          <span class="text-[10px] font-semibold text-slate-600 uppercase tracking-wide truncate text-left">${key}</span>
+          <span class="text-[10px] text-slate-400 flex-shrink-0 bg-slate-100 px-1.5 py-0.5 rounded-full">${items.length}</span>
+          <div class="flex-1 h-px bg-slate-200"></div>
+        </button>
+        ${expanded ? `<div class="space-y-1.5 mt-1">${items.map(o => renderCard(o, hideProvider)).join('')}</div>` : ''}
       </div>`;
   }).join('');
 }
@@ -981,13 +1035,21 @@ function renderOffers() {
     return;
   }
   list.innerHTML = `
-    <div class="flex items-center gap-1.5 mb-1.5 px-0.5">
-      <span class="text-[10px] text-slate-400">Ordenar:</span>
-      <button id="offers-sort-fecha"  onclick="setOffersSort('fecha')"  class=""></button>
-      <button id="offers-sort-precio" onclick="setOffersSort('precio')" class=""></button>
+    <div class="flex flex-wrap items-center gap-x-3 gap-y-1 mb-2 px-0.5">
+      <div class="flex items-center gap-1">
+        <span class="text-[10px] text-slate-400">Ordenar:</span>
+        <button id="offers-sort-fecha"  onclick="setOffersSort('fecha')"  class=""></button>
+        <button id="offers-sort-precio" onclick="setOffersSort('precio')" class=""></button>
+      </div>
+      <div class="w-px h-3 bg-slate-200"></div>
+      <div class="flex items-center gap-1">
+        <span class="text-[10px] text-slate-400">Agrupar:</span>
+        <button id="offers-group-proveedor" onclick="setOffersGroup('proveedor')" class="">Proveedor</button>
+        <button id="offers-group-anio"      onclick="setOffersGroup('anio')"      class="">Año</button>
+      </div>
     </div>
-    <div id="offers-cards" class="max-h-80 overflow-y-auto space-y-1.5 pr-0.5"></div>`;
-  _updateSortButtons();
+    <div id="offers-cards" class="max-h-80 overflow-y-auto pr-0.5"></div>`;
+  _updateOfferControls();
   _renderOfferCards();
 }
 

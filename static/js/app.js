@@ -8,7 +8,6 @@ const SESSION_ID = crypto.randomUUID();
 const ATTRS = {
   tipo_equipo:                  { label: 'Tipo de equipo',       type: 'enum',    values: ['Laptop','AIO','Desktop','Otro'] },
   marca:                        { label: 'Marca',                type: 'dict' },
-  nombre_modelo:                { label: 'Modelo',               type: 'free' },
   procesador_principal:         { label: 'Procesador',           type: 'dict' },
   linea_procesador:             { label: 'Línea procesador',     type: 'free' },
   nucleos_procesador:           { label: 'Núcleos',              type: 'numeric', readOnly: true },
@@ -415,7 +414,7 @@ function startEdit(attr) {
     okBtn.className = 'px-2.5 py-1 text-[12px] rounded-lg bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100 transition-colors';
     okBtn.textContent = '✓ OK';
     okBtn.onclick = () => {
-      if (selected.length === 0) { cancelEdit(attr); return; }
+      if (selected.length === 0) { commitEdit(attr, null); return; }
       commitEdit(attr, selected.length === 1 ? selected[0] : [...selected]);
     };
     btnWrap.appendChild(okBtn);
@@ -636,11 +635,11 @@ function startEdit(attr) {
       if (rangeMode && meta.type === 'numeric') {
         const mn = rangeMinInput?.value.trim() ?? '';
         const mx = rangeMaxInput?.value.trim() ?? '';
-        if (!mn && !mx) { cancelEdit(attr); return; }
+        if (!mn && !mx) { commitEdit(attr, null); return; }
         val = { min: mn || null, max: mx || null };
       } else {
         if (input.value.trim()) addValue(input.value.trim());
-        if (selectedValues.length === 0) { cancelEdit(attr); return; }
+        if (selectedValues.length === 0) { commitEdit(attr, null); return; }
         val = selectedValues.length === 1 ? selectedValues[0] : [...selectedValues];
       }
       commitEdit(attr, val);
@@ -650,14 +649,6 @@ function startEdit(attr) {
     cancelBtn.className = 'p-1 text-slate-400 hover:text-slate-600';
     cancelBtn.innerHTML = '✕';
     cancelBtn.onclick = () => { removeAc(); cancelEdit(attr); };
-
-    if (currentVal !== '' && currentVal != null) {
-      const clearBtn = document.createElement('button');
-      clearBtn.className = 'mr-auto px-2 py-0.5 text-[11px] text-red-400 hover:text-red-600 border border-red-200 hover:border-red-400 rounded transition-colors';
-      clearBtn.textContent = 'Borrar';
-      clearBtn.onclick = () => { removeAc(); commitEdit(attr, null); };
-      actionRow.appendChild(clearBtn);
-    }
 
     // Enter/Escape for range inputs without dropdowns
     if (meta.type === 'numeric' && !dropdowns[attr]?.length) {
@@ -1092,7 +1083,7 @@ function hideFichaLoading() {
 
 // ── Descarga PDF ──────────────────────────────────────────────────
 const PDF_SECTIONS = [
-  { label: 'General',           attrs: ['tipo_equipo','marca','nombre_modelo'] },
+  { label: 'General',           attrs: ['tipo_equipo','marca'] },
   { label: 'Procesador',        attrs: ['procesador_principal','linea_procesador','nucleos_procesador','hilos_procesador','frecuencia_turbo_procesador_mhz'] },
   { label: 'Memoria RAM',       attrs: ['total_ram_gb','tecnologia_ram','frecuencia_ram_mhz'] },
   { label: 'Almacenamiento',    attrs: ['total_almacenamiento_gb','tecnologia_disco_principal','tipo_configuracion_discos'] },

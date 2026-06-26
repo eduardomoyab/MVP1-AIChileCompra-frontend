@@ -1222,6 +1222,8 @@ function downloadFichaPDF() {
 
   const filename = `ficha-tecnica-compra-agil-${SESSION_ID.slice(0,6).toLowerCase()}.pdf`;
 
+  fetch(`/api/track/${SESSION_ID}`, { method: 'POST', headers: { ..._headers(), 'Content-Type': 'application/json' }, body: JSON.stringify({ tipo: 'pdf_download' }) }).catch(() => {});
+
   html2pdf().set({
     margin: [8, 8, 8, 8],
     filename,

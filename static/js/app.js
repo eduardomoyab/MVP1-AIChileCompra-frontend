@@ -8,9 +8,8 @@ const SESSION_ID = crypto.randomUUID();
 const ATTRS = {
   tipo_equipo:                  { label: 'Tipo de equipo',       type: 'enum',    values: ['Laptop','AIO','Desktop','Otro'] },
   marca:                        { label: 'Marca',                type: 'dict' },
-  nombre_modelo:                { label: 'Modelo',               type: 'free' },
   procesador_principal:         { label: 'Procesador',           type: 'dict' },
-  linea_procesador:             { label: 'Línea procesador',     type: 'free',    readOnly: true },
+  linea_procesador:             { label: 'Línea procesador',     type: 'free' },
   nucleos_procesador:           { label: 'Núcleos',              type: 'numeric', readOnly: true },
   hilos_procesador:             { label: 'Hilos',                type: 'numeric', readOnly: true },
   frecuencia_turbo_procesador_mhz: { label: 'Frec. Turbo (MHz)', type: 'numeric', readOnly: true },
@@ -37,12 +36,14 @@ const CORE_ATTRS = [
 const state = {
   ficha: {},
   priceData: null,
-  lgbmData: null,
   priceLoading: false,
   sending: false,
   isTyping: false,
   streamingBubble: null,
 };
+
+// Valores de dropdowns cargados desde /api/dropdowns al iniciar
+const dropdowns = {};
 
 // ── HTTP helpers ─────────────────────────────────────────────────
 const _headers = () => ({ 'Content-Type': 'application/json' });
@@ -108,6 +109,12 @@ function handleServerMessage(data) {
     case 'price_update':
       state.priceData = data.data;
       hidePriceLoading();
+      _offersData = [];
+      _offersFetched = false;
+      _offersSort = 'fecha_desc';
+      _offersGroup = 'none';
+      _offersExpanded = new Set();
+      _offersGroupKeys = [];
       renderPriceEstimate(data.data);
       break;
 
@@ -116,13 +123,10 @@ function handleServerMessage(data) {
       document.getElementById('price-container').innerHTML = priceNotFoundHtml();
       break;
 
-    case 'lgbm_price_update':
-      state.lgbmData = data.data;
-      renderLgbmPriceEstimate(data.data);
-      break;
-
-    case 'lgbm_price_not_found':
-      document.getElementById('lgbm-price-container').innerHTML = lgbmPriceNotFoundHtml();
+    case 'blocked':
+      hideTyping();
+      state.streamingBubble = null;
+      appendBlockedMessage(data.message);
       break;
 
     case 'error':
@@ -160,6 +164,27 @@ function appendMessage(role, content) {
   const emptyState = document.getElementById('chat-empty');
   if (emptyState) emptyState.style.display = 'none';
 
+  container.appendChild(wrap);
+  container.scrollTop = container.scrollHeight;
+}
+
+function appendBlockedMessage(reason) {
+  const container = document.getElementById('chat-messages');
+  const wrap = document.createElement('div');
+  wrap.className = 'flex gap-3 justify-start animate-in';
+  wrap.innerHTML = `
+    <div class="w-9 h-9 rounded-full bg-amber-100 border border-amber-200 flex items-center justify-center flex-shrink-0 mt-1">
+      <svg class="w-4 h-4 text-amber-600" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v4m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/>
+      </svg>
+    </div>
+    <div class="max-w-[82%] px-4 py-3 text-[14px] leading-relaxed bg-amber-50 border border-amber-200 rounded-2xl rounded-tl-sm">
+      <p class="font-semibold text-amber-800 mb-1">Consulta fuera del ámbito</p>
+      <p class="text-amber-700 text-[13px]">Este asistente está diseñado exclusivamente para ayudarte a especificar equipos computacionales en Compra Ágil.</p>
+      ${reason ? `<p class="text-amber-600 text-[12px] mt-1.5 italic">${escapeHtml(reason)}</p>` : ''}
+    </div>`;
+  const emptyState = document.getElementById('chat-empty');
+  if (emptyState) emptyState.style.display = 'none';
   container.appendChild(wrap);
   container.scrollTop = container.scrollHeight;
 }
@@ -210,21 +235,8 @@ function appendStreamingChunk(delta) {
   container.scrollTop = container.scrollHeight;
 }
 
-function showQuestions(questions) {
-  clearQuestions();
-  if (!questions || !questions.length) return;
-  const container = document.getElementById('chat-messages');
-  const wrap = document.createElement('div');
-  wrap.id = 'question-chips';
-  wrap.className = 'flex flex-wrap gap-2 animate-in';
-  questions.forEach(q => {
-    const chip = document.createElement('span');
-    chip.className = 'px-4 py-2 text-[13px] bg-brand-50 border border-brand-200 text-brand-700 rounded-full';
-    chip.textContent = q;
-    wrap.appendChild(chip);
-  });
-  container.appendChild(wrap);
-  container.scrollTop = container.scrollHeight;
+function showQuestions(_questions) {
+  // chips desactivados: el texto repetía la pregunta del asistente sin aportar valor
 }
 
 function clearQuestions() {
@@ -268,6 +280,20 @@ async function sendMessage() {
 }
 
 // ── Ficha: actualizar atributo ────────────────────────────────────
+function formatAttrValue(value) {
+  if (value === null || value === undefined) return 'sin valor';
+  if (value === true  || value === 'true')  return 'Sí';
+  if (value === false || value === 'false') return 'No';
+  if (Array.isArray(value)) return value.join(' / ');
+  if (typeof value === 'object' && ('min' in value || 'max' in value)) {
+    const parts = [];
+    if (value.min != null && value.min !== '') parts.push(String(value.min));
+    if (value.max != null && value.max !== '') parts.push(String(value.max));
+    return parts.length ? parts.join(' – ') : 'sin valor';
+  }
+  return String(value);
+}
+
 function applyFichaUpdate(update) {
   const wasEmpty = state.ficha['tipo_equipo']?.value == null;
   state.ficha[update.attribute] = update;
@@ -281,28 +307,36 @@ function applyFichaUpdate(update) {
 
   const valueSpan = row.querySelector('.attr-value');
   if (valueSpan) {
-    const displayVal = update.value === true ? 'Sí' : update.value === false ? 'No' : String(update.value);
-    valueSpan.textContent = displayVal;
-    valueSpan.className = 'attr-value text-[13px] font-semibold text-slate-800';
+    const isEmpty = update.value == null;
+    valueSpan.textContent = isEmpty ? 'sin valor' : formatAttrValue(update.value);
+    valueSpan.className = isEmpty
+      ? 'attr-value text-[13px] text-slate-400 italic'
+      : 'attr-value text-[13px] font-semibold text-slate-800';
   }
 
   const badge = row.querySelector('.attr-badge');
-  if (badge && update.source) {
-    const configs = {
-      ai:         { label: 'IA',   cls: 'bg-violet-50 text-violet-600 border-violet-200' },
-      user:       { label: 'Tú',   cls: 'bg-emerald-50 text-emerald-600 border-emerald-200' },
-      complement: { label: 'Auto', cls: 'bg-amber-50 text-amber-600 border-amber-200' },
-    };
-    const cfg = configs[update.source];
-    if (cfg) {
-      badge.textContent = cfg.label;
-      badge.className = `attr-badge text-xs font-medium px-2 py-0.5 rounded-md border ${cfg.cls}`;
-      badge.classList.remove('hidden');
+  if (badge) {
+    if (update.value == null) {
+      badge.classList.add('hidden');
+    } else if (update.source) {
+      const configs = {
+        ai:         { label: 'IA',   cls: 'bg-violet-50 text-violet-600 border-violet-200' },
+        user:       { label: 'Tú',   cls: 'bg-emerald-50 text-emerald-600 border-emerald-200' },
+        complement: { label: 'Auto', cls: 'bg-amber-50 text-amber-600 border-amber-200' },
+      };
+      const cfg = configs[update.source];
+      if (cfg) {
+        badge.textContent = cfg.label;
+        badge.className = `attr-badge text-xs font-medium px-2 py-0.5 rounded-md border ${cfg.cls}`;
+        badge.classList.remove('hidden');
+      }
     }
   }
 
   const trigger = row.querySelector('.attr-trigger');
-  if (trigger && update.source === 'complement' && update.triggered_by) {
+  if (update.value == null && trigger) {
+    trigger.classList.add('hidden');
+  } else if (trigger && update.source === 'complement' && update.triggered_by) {
     trigger.textContent = `← ${update.triggered_by}`;
     trigger.classList.remove('hidden');
   }
@@ -349,18 +383,41 @@ function startEdit(attr) {
     const btnWrap = document.createElement('div');
     btnWrap.className = 'flex flex-wrap gap-1 items-center w-full';
 
+    const currentArr = Array.isArray(currentVal)
+      ? currentVal.map(String)
+      : (currentVal !== '' && currentVal !== null && currentVal !== undefined ? [String(currentVal)] : []);
+    let selected = [...currentArr];
+
+    function updateStyles() {
+      btnWrap.querySelectorAll('[data-val]').forEach(btn => {
+        const active = selected.includes(btn.dataset.val);
+        btn.className = `px-2.5 py-1.5 text-[13px] rounded-lg border transition-colors ${
+          active ? 'bg-brand-600 text-white border-brand-600' : 'bg-white text-slate-700 border-slate-200 hover:border-brand-400'
+        }`;
+      });
+    }
+
     values.forEach(v => {
       const btn = document.createElement('button');
-      const isActive = String(currentVal) === String(v);
-      btn.className = `px-2.5 py-1.5 text-[13px] rounded-lg border transition-colors ${
-        isActive
-          ? 'bg-brand-600 text-white border-brand-600'
-          : 'bg-white text-slate-700 border-slate-200 hover:border-brand-400'
-      }`;
+      btn.dataset.val = v;
       btn.textContent = v === 'true' ? 'Sí' : v === 'false' ? 'No' : v;
-      btn.onclick = () => commitEdit(attr, v);
+      btn.onclick = () => {
+        if (selected.includes(v)) { selected = selected.filter(x => x !== v); }
+        else { selected.push(v); }
+        updateStyles();
+      };
       btnWrap.appendChild(btn);
     });
+    updateStyles();
+
+    const okBtn = document.createElement('button');
+    okBtn.className = 'px-2.5 py-1 text-[12px] rounded-lg bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100 transition-colors';
+    okBtn.textContent = '✓ OK';
+    okBtn.onclick = () => {
+      if (selected.length === 0) { commitEdit(attr, null); return; }
+      commitEdit(attr, selected.length === 1 ? selected[0] : [...selected]);
+    };
+    btnWrap.appendChild(okBtn);
 
     const cancelBtn = document.createElement('button');
     cancelBtn.className = 'ml-1 px-2 py-1 text-xs text-slate-400 hover:text-slate-600';
@@ -370,33 +427,245 @@ function startEdit(attr) {
     editWrap.appendChild(btnWrap);
 
   } else {
-    const inputWrap = document.createElement('div');
-    inputWrap.className = 'flex items-center gap-1 w-full';
+    const outerWrap = document.createElement('div');
+    outerWrap.className = 'flex flex-col gap-1 w-full';
+
+    // Init from current state
+    const isRangeInit = typeof currentVal === 'object' && currentVal !== null
+      && !Array.isArray(currentVal) && ('min' in currentVal || 'max' in currentVal);
+    let selectedValues = [];
+    if (Array.isArray(currentVal)) {
+      selectedValues = currentVal.map(String);
+    } else if (!isRangeInit && currentVal !== '' && currentVal != null) {
+      selectedValues = [String(currentVal)];
+    }
+
+    // ── Pills ─────────────────────────────────────────────────────
+    const pillsRow = document.createElement('div');
+    pillsRow.className = `flex flex-wrap gap-1 min-h-[4px] ${isRangeInit ? 'hidden' : ''}`;
+
+    function renderPills() {
+      pillsRow.innerHTML = '';
+      selectedValues.forEach((v, i) => {
+        const pill = document.createElement('span');
+        pill.className = 'inline-flex items-center gap-0.5 px-2 py-0.5 text-[12px] bg-brand-50 text-brand-700 rounded-full border border-brand-200';
+        const lbl = document.createElement('span'); lbl.textContent = v;
+        const rm = document.createElement('button');
+        rm.innerHTML = '×';
+        rm.className = 'ml-0.5 text-brand-400 hover:text-brand-700 font-bold text-[14px] leading-none';
+        rm.onclick = e => { e.preventDefault(); e.stopPropagation(); selectedValues.splice(i, 1); renderPills(); };
+        pill.appendChild(lbl); pill.appendChild(rm);
+        pillsRow.appendChild(pill);
+      });
+    }
+    renderPills();
+    outerWrap.appendChild(pillsRow);
+
+    // ── Text input + autocomplete ─────────────────────────────────
+    const inputRow = document.createElement('div');
+    inputRow.className = `flex items-center gap-1 w-full ${isRangeInit ? 'hidden' : ''}`;
+    const inputContainer = document.createElement('div');
+    inputContainer.className = 'relative flex-1';
 
     const input = document.createElement('input');
     input.type = 'text';
-    input.value = String(currentVal);
-    input.className = 'flex-1 text-[13px] px-3 py-1.5 border border-brand-400 rounded-lg focus:outline-none focus:ring-1 focus:ring-brand-400';
-    input.placeholder = `Ingresar ${meta.label.toLowerCase()}...`;
-    input.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') commitEdit(attr, input.value.trim());
-      if (e.key === 'Escape') cancelEdit(attr);
+    input.value = '';
+    input.className = 'w-full text-[13px] px-3 py-1.5 border border-brand-400 rounded-lg focus:outline-none focus:ring-1 focus:ring-brand-400';
+    input.placeholder = `Añadir ${meta.label.toLowerCase()}...`;
+
+    const acList = document.createElement('div');
+    acList.className = 'fixed z-[9999] bg-white border border-slate-200 rounded-lg shadow-lg overflow-y-auto hidden';
+    acList.style.maxHeight = '220px';
+    document.body.appendChild(acList);
+    let acItems = [];
+    let acIdx = -1;
+    let acSourceInput = input;
+    let acOnSelect = addValue;
+
+    function positionAc() {
+      const rect = acSourceInput.getBoundingClientRect();
+      const spaceBelow = window.innerHeight - rect.bottom - 4;
+      const spaceAbove = rect.top - 4;
+      const listH = Math.min(220, acItems.length * 38);
+      acList.style.left  = `${rect.left}px`;
+      acList.style.width = `${rect.width}px`;
+      if (spaceBelow >= listH || spaceBelow >= spaceAbove) {
+        acList.style.top = `${rect.bottom + 2}px`; acList.style.bottom = 'auto';
+      } else {
+        acList.style.bottom = `${window.innerHeight - rect.top + 2}px`; acList.style.top = 'auto';
+      }
+    }
+
+    function addValue(v) {
+      v = v.trim();
+      if (!v || selectedValues.includes(v)) { input.value = ''; return; }
+      selectedValues.push(v);
+      renderPills();
+      input.value = '';
+      acList.classList.add('hidden');
+    }
+
+    function renderAc(query) {
+      const q = query.trim().toLowerCase();
+      const opts = dropdowns[attr] || [];
+      acItems = q ? opts.filter(v => v.toLowerCase().includes(q)).slice(0, 10) : opts.slice(0, 10);
+      acIdx = -1; acList.innerHTML = '';
+      if (!acItems.length) { acList.classList.add('hidden'); return; }
+      acItems.forEach(v => {
+        const item = document.createElement('div');
+        item.className = 'px-3 py-2 text-[13px] text-slate-700 cursor-pointer hover:bg-brand-50 hover:text-brand-700';
+        item.textContent = v;
+        item.addEventListener('mousedown', e => { e.preventDefault(); acOnSelect(v); });
+        acList.appendChild(item);
+      });
+      positionAc(); acList.classList.remove('hidden');
+    }
+
+    function updateHighlight() {
+      Array.from(acList.children).forEach((el, i) => {
+        el.classList.toggle('bg-brand-50', i === acIdx);
+        el.classList.toggle('text-brand-700', i === acIdx);
+      });
+    }
+
+    function removeAc() {
+      acList.classList.add('hidden');
+      if (acList.parentNode) acList.parentNode.removeChild(acList);
+    }
+
+    if (dropdowns[attr]?.length) {
+      input.addEventListener('input', () => { acSourceInput = input; acOnSelect = addValue; renderAc(input.value); });
+      input.addEventListener('focus', () => { acSourceInput = input; acOnSelect = addValue; renderAc(input.value); });
+      input.addEventListener('blur', () => setTimeout(() => acList.classList.add('hidden'), 150));
+    }
+
+    input.addEventListener('keydown', e => {
+      const listVisible = !acList.classList.contains('hidden') && acItems.length;
+      if (listVisible && e.key === 'ArrowDown') { e.preventDefault(); acIdx = Math.min(acIdx + 1, acItems.length - 1); updateHighlight(); return; }
+      if (listVisible && e.key === 'ArrowUp')   { e.preventDefault(); acIdx = Math.max(acIdx - 1, -1); updateHighlight(); return; }
+      if (e.key === 'Enter') {
+        e.preventDefault(); removeAc();
+        addValue(listVisible && acIdx >= 0 ? acItems[acIdx] : input.value);
+        return;
+      }
+      if (e.key === 'Escape') { removeAc(); cancelEdit(attr); }
     });
+
+    inputContainer.appendChild(input);
+    inputRow.appendChild(inputContainer);
+    outerWrap.appendChild(inputRow);
+
+    // ── Range row (numeric only) ──────────────────────────────────
+    let rangeMinInput = null;
+    let rangeMaxInput = null;
+    const rangeRow = document.createElement('div');
+    rangeRow.className = `flex items-center gap-1 w-full ${isRangeInit ? '' : 'hidden'}`;
+
+    if (meta.type === 'numeric') {
+      rangeMinInput = document.createElement('input');
+      rangeMinInput.type = 'text'; rangeMinInput.placeholder = 'Mín';
+      rangeMinInput.className = 'flex-1 text-[13px] px-3 py-1.5 border border-brand-400 rounded-lg focus:outline-none';
+      const rangeSep = document.createElement('span');
+      rangeSep.className = 'text-slate-400 text-sm'; rangeSep.textContent = '–';
+      rangeMaxInput = document.createElement('input');
+      rangeMaxInput.type = 'text'; rangeMaxInput.placeholder = 'Máx';
+      rangeMaxInput.className = 'flex-1 text-[13px] px-3 py-1.5 border border-brand-400 rounded-lg focus:outline-none';
+      if (isRangeInit && currentVal) {
+        rangeMinInput.value = currentVal.min ?? '';
+        rangeMaxInput.value = currentVal.max ?? '';
+      }
+      rangeRow.appendChild(rangeMinInput);
+      rangeRow.appendChild(rangeSep);
+      rangeRow.appendChild(rangeMaxInput);
+
+      if (dropdowns[attr]?.length) {
+        [rangeMinInput, rangeMaxInput].forEach(inp => {
+          const onSel = v => { inp.value = v; acList.classList.add('hidden'); };
+          inp.addEventListener('input', () => { acSourceInput = inp; acOnSelect = onSel; renderAc(inp.value); });
+          inp.addEventListener('focus', () => { acSourceInput = inp; acOnSelect = onSel; renderAc(inp.value); });
+          inp.addEventListener('blur',  () => setTimeout(() => acList.classList.add('hidden'), 150));
+          inp.addEventListener('keydown', e => {
+            const listVisible = !acList.classList.contains('hidden') && acItems.length;
+            if (listVisible && e.key === 'ArrowDown') { e.preventDefault(); acIdx = Math.min(acIdx + 1, acItems.length - 1); updateHighlight(); return; }
+            if (listVisible && e.key === 'ArrowUp')   { e.preventDefault(); acIdx = Math.max(acIdx - 1, -1); updateHighlight(); return; }
+            if (e.key === 'Enter') {
+              e.preventDefault();
+              if (listVisible && acIdx >= 0) { acOnSelect(acItems[acIdx]); removeAc(); return; }
+              okBtn.click();
+            }
+            if (e.key === 'Escape') { removeAc(); cancelEdit(attr); }
+          });
+        });
+      }
+    }
+    outerWrap.appendChild(rangeRow);
+
+    // ── Action row ────────────────────────────────────────────────
+    const actionRow = document.createElement('div');
+    actionRow.className = 'flex items-center gap-1 justify-end';
+
+    let rangeMode = isRangeInit;
+
+    if (meta.type === 'numeric') {
+      const rangeToggle = document.createElement('button');
+      function syncRangeToggle() {
+        rangeToggle.className = `px-2 py-1 text-[11px] rounded border transition-colors ${
+          rangeMode ? 'bg-brand-100 text-brand-700 border-brand-200' : 'bg-white text-slate-500 border-slate-200 hover:border-brand-300'
+        }`;
+      }
+      rangeToggle.textContent = 'Rango';
+      syncRangeToggle();
+      rangeToggle.onclick = () => {
+        rangeMode = !rangeMode;
+        rangeRow.classList.toggle('hidden', !rangeMode);
+        inputRow.classList.toggle('hidden', rangeMode);
+        pillsRow.classList.toggle('hidden', rangeMode);
+        syncRangeToggle();
+        setTimeout(() => (rangeMode ? rangeMinInput?.focus() : input.focus()), 0);
+      };
+      actionRow.appendChild(rangeToggle);
+    }
 
     const okBtn = document.createElement('button');
     okBtn.className = 'p-1 text-emerald-600 hover:text-emerald-700';
     okBtn.innerHTML = '✓';
-    okBtn.onclick = () => commitEdit(attr, input.value.trim());
+    okBtn.onclick = () => {
+      removeAc();
+      let val;
+      if (rangeMode && meta.type === 'numeric') {
+        const mn = rangeMinInput?.value.trim() ?? '';
+        const mx = rangeMaxInput?.value.trim() ?? '';
+        if (!mn && !mx) { commitEdit(attr, null); return; }
+        val = { min: mn || null, max: mx || null };
+      } else {
+        if (input.value.trim()) addValue(input.value.trim());
+        if (selectedValues.length === 0) { commitEdit(attr, null); return; }
+        val = selectedValues.length === 1 ? selectedValues[0] : [...selectedValues];
+      }
+      commitEdit(attr, val);
+    };
 
     const cancelBtn = document.createElement('button');
     cancelBtn.className = 'p-1 text-slate-400 hover:text-slate-600';
     cancelBtn.innerHTML = '✕';
-    cancelBtn.onclick = () => cancelEdit(attr);
+    cancelBtn.onclick = () => { removeAc(); cancelEdit(attr); };
 
-    inputWrap.appendChild(input);
-    inputWrap.appendChild(okBtn);
-    inputWrap.appendChild(cancelBtn);
-    editWrap.appendChild(inputWrap);
+    // Enter/Escape for range inputs without dropdowns
+    if (meta.type === 'numeric' && !dropdowns[attr]?.length) {
+      [rangeMinInput, rangeMaxInput].forEach(inp => {
+        if (!inp) return;
+        inp.addEventListener('keydown', e => {
+          if (e.key === 'Enter') { e.preventDefault(); okBtn.click(); }
+          if (e.key === 'Escape') { removeAc(); cancelEdit(attr); }
+        });
+      });
+    }
+
+    actionRow.appendChild(okBtn);
+    actionRow.appendChild(cancelBtn);
+    outerWrap.appendChild(actionRow);
+
+    editWrap.appendChild(outerWrap);
     setTimeout(() => input.focus(), 0);
   }
 }
@@ -411,11 +680,25 @@ function cancelEdit(attr) {
 }
 
 function commitEdit(attr, value) {
-  if (value === '' || value === null || value === undefined) {
+  if (value === '' || value === undefined) {
     cancelEdit(attr);
     return;
   }
   cancelEdit(attr);
+
+  // Actualización optimista: mostrar el valor inmediatamente con badge "guardando"
+  const row = document.getElementById(`attr-${attr}`);
+  if (row) {
+    const vs = row.querySelector('.attr-value');
+    const badge = row.querySelector('.attr-badge');
+    const displayVal = formatAttrValue(value);
+    if (vs) { vs.textContent = displayVal; vs.className = 'attr-value text-[13px] font-semibold text-slate-800'; }
+    if (badge) {
+      badge.textContent = '…';
+      badge.className = 'attr-badge text-xs font-medium px-2 py-0.5 rounded-md border text-slate-400 border-slate-200 bg-slate-50';
+      badge.classList.remove('hidden');
+    }
+  }
 
   if (state.ficha['tipo_equipo']?.value != null || attr === 'tipo_equipo') {
     showPriceLoading();
@@ -497,6 +780,17 @@ function renderPriceEstimate(data) {
   const widthPct = ((data.p75  - data.p25) / range) * 100;
   const meanPct  = ((data.mean - data.min) / range) * 100;
 
+  const broadWarning = data.broad_warning ? `
+    <div class="flex items-start gap-2.5 bg-amber-50 border border-amber-300 rounded-lg px-3 py-2.5 mt-2">
+      <svg class="w-4 h-4 flex-shrink-0 text-amber-500 mt-0.5" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v4m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/>
+      </svg>
+      <div>
+        <p class="text-[12px] font-semibold text-amber-700 leading-tight">Búsqueda muy amplia (${data.count.toLocaleString('es-CL')} ofertas)</p>
+        <p class="text-[11px] text-amber-600 mt-0.5 leading-snug">La estimación puede no ser precisa. Agrega más atributos (procesador, RAM, almacenamiento) para acotar los resultados.</p>
+      </div>
+    </div>` : '';
+
   container.innerHTML = `
     <div class="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden animate-in">
       <div class="flex items-center justify-between px-3 py-1.5 lg:px-4 lg:py-2 bg-gradient-to-r from-brand-700 to-brand-600">
@@ -529,8 +823,225 @@ function renderPriceEstimate(data) {
         <div class="text-center text-[10px] text-slate-300 border-t border-slate-100 pt-1.5">
           ${data.match_description}
         </div>
+        ${broadWarning}
+      </div>
+    </div>
+    <div class="mt-2">
+      <button onclick="toggleOffers()" class="w-full flex items-center justify-between px-3 py-2.5 bg-brand-50 border border-brand-200 rounded-xl text-[12px] font-semibold text-brand-700 hover:bg-brand-100 hover:border-brand-300 transition-colors group">
+        <span class="flex items-center gap-2">
+          <svg class="w-3.5 h-3.5 text-brand-500" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/>
+          </svg>
+          Ver historial de transacciones
+          <span class="text-[10px] font-normal text-brand-500 bg-brand-100 border border-brand-200 px-1.5 py-0.5 rounded-full group-hover:bg-brand-200">Presiona para expandir</span>
+        </span>
+        <svg id="offers-chevron" class="w-4 h-4 text-brand-400 transition-transform duration-200" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+          <polyline points="6 9 12 15 18 9"/>
+        </svg>
+      </button>
+      <div id="offers-list" class="hidden mt-1.5">
+        <div class="text-center py-4 text-[12px] text-slate-400">Cargando transacciones...</div>
       </div>
     </div>`;
+}
+
+let _offersData = [];
+let _offersSort = 'fecha_desc';
+let _offersGroup = 'none'; // 'none' | 'proveedor' | 'anio'
+let _offersExpanded = new Set(); // claves de grupos expandidos (default: todos colapsados)
+let _offersGroupKeys = [];       // orden de grupos del render actual, para onclick por índice
+let _offersFetched = false;
+
+function toggleOffers() {
+  const list = document.getElementById('offers-list');
+  const chevron = document.getElementById('offers-chevron');
+  if (!list) return;
+  const isHidden = list.classList.contains('hidden');
+  list.classList.toggle('hidden');
+  if (chevron) chevron.style.transform = isHidden ? 'rotate(180deg)' : '';
+  if (isHidden && !_offersFetched) fetchOffers();
+}
+
+async function fetchOffers() {
+  const list = document.getElementById('offers-list');
+  if (!list) return;
+  try {
+    const resp = await fetch(`/api/offers/${SESSION_ID}`, { headers: _headers() });
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const { offers } = await resp.json();
+    _offersData = offers || [];
+    _offersFetched = true;
+    renderOffers();
+  } catch (e) {
+    if (list) list.innerHTML = `<div class="text-center py-3 text-[12px] text-red-400">Error al cargar transacciones</div>`;
+  }
+}
+
+function setOffersSort(key) {
+  if (_offersSort.startsWith(key)) {
+    _offersSort = _offersSort.endsWith('_desc') ? key + '_asc' : key + '_desc';
+  } else {
+    _offersSort = key + '_desc';
+  }
+  _updateOfferControls();
+  _renderOfferCards();
+}
+
+function setOffersGroup(key) {
+  _offersGroup = _offersGroup === key ? 'none' : key;
+  _offersExpanded = new Set();
+  _offersGroupKeys = [];
+  _updateOfferControls();
+  _renderOfferCards();
+}
+
+function toggleOfferGroup(idx) {
+  const key = _offersGroupKeys[idx];
+  if (key === undefined) return;
+  if (_offersExpanded.has(key)) {
+    _offersExpanded.delete(key);
+  } else {
+    _offersExpanded.add(key);
+  }
+  _renderOfferCards();
+}
+
+function _updateOfferControls() {
+  ['fecha', 'precio'].forEach(key => {
+    const btn = document.getElementById(`offers-sort-${key}`);
+    if (!btn) return;
+    const active = _offersSort.startsWith(key);
+    const asc = _offersSort === key + '_asc';
+    btn.className = `inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-medium transition-colors ${
+      active ? 'bg-brand-100 text-brand-700' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'
+    }`;
+    btn.innerHTML = (key === 'fecha' ? 'Fecha' : 'Precio') + (active ? (asc ? ' ↑' : ' ↓') : ' ↓');
+  });
+  ['proveedor', 'anio'].forEach(key => {
+    const btn = document.getElementById(`offers-group-${key}`);
+    if (!btn) return;
+    const active = _offersGroup === key;
+    btn.className = `inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-medium transition-colors ${
+      active ? 'bg-violet-100 text-violet-700' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'
+    }`;
+  });
+}
+
+function _renderOfferCards() {
+  const cards = document.getElementById('offers-cards');
+  if (!cards) return;
+
+  const fmt = (n) => n != null
+    ? new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(n)
+    : '—';
+
+  const sorted = [..._offersData].sort((a, b) => {
+    if (_offersSort === 'fecha_desc')  return (b.fecha_modificacion || '').localeCompare(a.fecha_modificacion || '');
+    if (_offersSort === 'fecha_asc')   return (a.fecha_modificacion || '').localeCompare(b.fecha_modificacion || '');
+    if (_offersSort === 'precio_desc') return (b.precio_unitario || 0) - (a.precio_unitario || 0);
+    if (_offersSort === 'precio_asc')  return (a.precio_unitario || 0) - (b.precio_unitario || 0);
+    return 0;
+  });
+
+  const _iconExternal = `<svg class="w-3 h-3" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/></svg>`;
+  const _iconDoc      = `<svg class="w-3 h-3" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>`;
+  const _btnOk  = (href, icon, label) => `<a href="${href}" target="_blank" rel="noopener" class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-semibold border transition-colors ${icon === _iconDoc ? 'bg-teal-50 text-teal-700 border-teal-200 hover:bg-teal-100 hover:border-teal-400' : 'bg-brand-50 text-brand-700 border-brand-200 hover:bg-brand-100 hover:border-brand-400'}">${icon}${label}</a>`;
+  const _btnOff = (icon, label) => `<span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-medium border bg-slate-50 text-slate-400 border-slate-200">${icon}${label}</span>`;
+
+  const renderCard = (o, hideProvider = false) => {
+    const ocUrls = o.oc_urls || [];
+    const ocBtns = ocUrls.map((url, i) =>
+      _btnOk(url, _iconExternal, ocUrls.length === 1 ? 'Ver OC' : `OC ${i + 1}`)
+    );
+    const ocSection = ocBtns.length ? ocBtns.join('') : _btnOff(_iconExternal, 'OC no disponible');
+    const caSection = o.ca_available
+      ? _btnOk(o.ca_url, _iconDoc, 'Detalle Compra Ágil')
+      : _btnOff(_iconDoc, 'Ficha no disponible');
+    return `
+      <div class="bg-slate-50 border border-slate-100 rounded-lg px-3 py-2">
+        <div class="flex items-start justify-between gap-2">
+          <div class="flex-1 min-w-0">
+            ${!hideProvider && o.razon_social ? `<p class="text-[12px] font-semibold text-slate-800 leading-tight mb-0.5">${o.razon_social}</p>` : ''}
+            ${o.descripcion ? `<p class="text-[11px] text-slate-500 leading-snug mb-1">${o.descripcion}</p>` : ''}
+            <p class="text-[10px] text-slate-400">${o.codigo_requerimiento || ''} ${o.fecha_modificacion ? '· ' + o.fecha_modificacion : ''}</p>
+          </div>
+          <div class="text-right flex-shrink-0">
+            <p class="text-[14px] font-semibold text-slate-700">${fmt(o.precio_unitario)}</p>
+            <p class="text-[12px] text-slate-400">${fmt(o.precio_unitario_iva)} c/IVA</p>
+          </div>
+        </div>
+        <div class="flex flex-wrap gap-1.5 mt-1.5">${ocSection}${caSection}</div>
+      </div>`;
+  };
+
+  if (_offersGroup === 'none') {
+    cards.innerHTML = sorted.map(o => renderCard(o)).join('');
+    return;
+  }
+
+  const getGroupKey = (o) => {
+    if (_offersGroup === 'proveedor') return o.razon_social || 'Proveedor no Identificado';
+    if (_offersGroup === 'anio')      return o.fecha_modificacion ? o.fecha_modificacion.slice(0, 4) : '(Sin fecha)';
+    return '';
+  };
+
+  const grouped = new Map();
+  for (const o of sorted) {
+    const key = getGroupKey(o);
+    if (!grouped.has(key)) grouped.set(key, []);
+    grouped.get(key).push(o);
+  }
+
+  const groupKeys = [...grouped.keys()].sort((a, b) =>
+    _offersGroup === 'anio' ? b.localeCompare(a) : a.localeCompare(b, 'es')
+  );
+  _offersGroupKeys = groupKeys;
+
+  const hideProvider = _offersGroup === 'proveedor';
+  const _chevronDown  = `<svg class="w-3 h-3 flex-shrink-0 text-slate-400 transition-transform" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"/></svg>`;
+  const _chevronRight = `<svg class="w-3 h-3 flex-shrink-0 text-slate-400 transition-transform" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"/></svg>`;
+
+  cards.innerHTML = groupKeys.map((key, idx) => {
+    const items = grouped.get(key);
+    const expanded = _offersExpanded.has(key);
+    return `
+      <div class="mb-1">
+        <button onclick="toggleOfferGroup(${idx})"
+          class="w-full flex items-center gap-2 px-1 py-1.5 rounded-md hover:bg-slate-100 transition-colors cursor-pointer">
+          ${expanded ? _chevronDown : _chevronRight}
+          <span class="text-[10px] font-semibold text-slate-600 uppercase tracking-wide truncate text-left">${key}</span>
+          <span class="text-[10px] text-slate-400 flex-shrink-0 bg-slate-100 px-1.5 py-0.5 rounded-full">${items.length}</span>
+          <div class="flex-1 h-px bg-slate-200"></div>
+        </button>
+        ${expanded ? `<div class="space-y-1.5 mt-1">${items.map(o => renderCard(o, hideProvider)).join('')}</div>` : ''}
+      </div>`;
+  }).join('');
+}
+
+function renderOffers() {
+  const list = document.getElementById('offers-list');
+  if (!list) return;
+  if (!_offersData.length) {
+    list.innerHTML = `<div class="text-center py-3 text-[12px] text-slate-400">No se encontraron transacciones recientes</div>`;
+    return;
+  }
+  list.innerHTML = `
+    <div class="flex flex-wrap items-center gap-x-3 gap-y-1 mb-2 px-0.5">
+      <div class="flex items-center gap-1">
+        <span class="text-[10px] text-slate-400">Ordenar:</span>
+        <button id="offers-sort-fecha"  onclick="setOffersSort('fecha')"  class=""></button>
+        <button id="offers-sort-precio" onclick="setOffersSort('precio')" class=""></button>
+      </div>
+      <div class="w-px h-3 bg-slate-200"></div>
+      <div class="flex items-center gap-1">
+        <span class="text-[10px] text-slate-400">Agrupar:</span>
+        <button id="offers-group-proveedor" onclick="setOffersGroup('proveedor')" class="">Proveedor</button>
+        <button id="offers-group-anio"      onclick="setOffersGroup('anio')"      class="">Año</button>
+      </div>
+    </div>
+    <div id="offers-cards" class="max-h-80 overflow-y-auto pr-0.5"></div>`;
+  _updateOfferControls();
+  _renderOfferCards();
 }
 
 // ── Sin precio encontrado ─────────────────────────────────────────
@@ -559,65 +1070,6 @@ function priceEmptyHtml() {
 }
 
 // ── Precio mercado externo (LightGBM) ────────────────────────────
-function renderLgbmPriceEstimate(data) {
-  const container = document.getElementById('lgbm-price-container');
-  if (!container) return;
-
-  const fmt = (n) => n != null
-    ? new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(n)
-    : '—';
-
-  const cat = data.category === 'Notebooks' ? 'Notebook' : 'All-in-One';
-  const range = (data.p75 - data.p25) || 1;
-  const meanPct = Math.max(0, Math.min(100, ((data.mean - data.p25) / range) * 100));
-
-  container.innerHTML = `
-    <div class="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden animate-in">
-      <div class="flex items-center justify-between px-3 py-1.5 lg:px-4 lg:py-2 bg-gradient-to-r from-teal-700 to-teal-600">
-        <div class="flex items-center gap-2">
-          <svg class="w-3.5 h-3.5 text-white opacity-80" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-            <circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 010 20M12 2a15.3 15.3 0 000 20"/>
-          </svg>
-          <span class="text-[12px] lg:text-[13px] font-semibold text-white">Estimación · Mercado Externo · IA</span>
-        </div>
-        <span class="text-[11px] lg:text-[12px] text-teal-200 opacity-80">${cat}</span>
-      </div>
-      <div class="px-3 py-2 lg:px-4 lg:py-3">
-        <div class="flex items-center justify-between gap-2 mb-1.5 lg:mb-2.5">
-          <div>
-            <p class="text-lg lg:text-3xl font-bold text-teal-700 leading-none">${fmt(data.mean)}</p>
-            <p class="text-[11px] lg:text-[13px] text-slate-400 mt-0.5">precio estimado</p>
-          </div>
-          <div class="text-right flex-shrink-0">
-            <p class="text-[10px] lg:text-[12px] text-slate-400 mb-0.5">Rango esperado</p>
-            <p class="text-[12px] lg:text-[13px] font-medium text-slate-600">${fmt(data.p25)} – ${fmt(data.p75)}</p>
-          </div>
-        </div>
-        <div class="relative h-1.5 lg:h-2 bg-slate-100 rounded-full mb-1.5 lg:mb-2">
-          <div class="absolute top-0 h-full bg-teal-100 rounded-full" style="left:0%;width:100%"></div>
-          <div class="absolute top-1/2 -translate-y-1/2 w-2.5 h-2.5 lg:w-3 lg:h-3 bg-teal-600 rounded-full border-2 border-white shadow"
-               style="left:calc(${meanPct.toFixed(1)}% - 5px)"></div>
-        </div>
-        <div class="text-center text-[10px] text-slate-300 border-t border-slate-100 pt-1.5">
-          estimación con IA
-        </div>
-      </div>
-    </div>`;
-}
-
-function lgbmPriceNotFoundHtml() {
-  return `
-    <div class="bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 flex items-start gap-3">
-      <svg class="w-4 h-4 flex-shrink-0 text-slate-400 mt-0.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-        <circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 010 20M12 2a15.3 15.3 0 000 20"/>
-      </svg>
-      <div>
-        <p class="text-[13px] font-semibold text-slate-600">Sin estimación de mercado externo</p>
-        <p class="text-[12px] text-slate-400 mt-0.5 leading-snug">No se pudo obtener una estimación de mercado externo para este equipo (solo aplica a Laptops y All-in-One).</p>
-      </div>
-    </div>`;
-}
-
 // ── Ficha: indicador de carga ─────────────────────────────────────
 function showFichaLoading() {
   const el = document.getElementById('ficha-loading-bar');
@@ -631,7 +1083,7 @@ function hideFichaLoading() {
 
 // ── Descarga PDF ──────────────────────────────────────────────────
 const PDF_SECTIONS = [
-  { label: 'General',           attrs: ['tipo_equipo','marca','nombre_modelo'] },
+  { label: 'General',           attrs: ['tipo_equipo','marca'] },
   { label: 'Procesador',        attrs: ['procesador_principal','linea_procesador','nucleos_procesador','hilos_procesador','frecuencia_turbo_procesador_mhz'] },
   { label: 'Memoria RAM',       attrs: ['total_ram_gb','tecnologia_ram','frecuencia_ram_mhz'] },
   { label: 'Almacenamiento',    attrs: ['total_almacenamiento_gb','tecnologia_disco_principal','tipo_configuracion_discos'] },
@@ -668,7 +1120,6 @@ function downloadFichaPDF() {
 
   // Página de precios: page break + diseño en dos columnas
   const ca = state.priceData;
-  const lgbm = state.lgbmData;
   const _stat = (lbl, val, border = '#dbeafe') =>
     `<div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid ${border};">
        <span style="font-size:10px;color:#64748b;">${lbl}</span>
@@ -693,23 +1144,7 @@ function downloadFichaPDF() {
       </div>`;
   }
 
-  let lgbmCard = '';
-  if (lgbm) {
-    lgbmCard = `
-      <div style="flex:1;border:1.5px solid #99f6e4;border-radius:10px;overflow:hidden;">
-        <div style="background:#0f766e;padding:20px 22px;">
-          <div style="font-size:9px;letter-spacing:.09em;text-transform:uppercase;color:rgba(255,255,255,.6);margin-bottom:8px;">Estimación · Mercado Externo · IA</div>
-          <div style="font-size:32px;font-weight:900;color:#fff;line-height:1;">${fmt(lgbm.mean)}</div>
-          <div style="font-size:10px;color:rgba(255,255,255,.7);margin-top:5px;">precio estimado · ${lgbm.category}</div>
-        </div>
-        <div style="background:#f0fdfa;padding:16px 22px;">
-          ${_stat('Rango esperado', `${fmt(lgbm.p25)} – ${fmt(lgbm.p75)}`, 'transparent')}
-          <div style="font-size:9px;color:#94a3b8;margin-top:10px;font-style:italic;">Estimación con Inteligencia Artificial</div>
-        </div>
-      </div>`;
-  }
-
-  const pricePageHtml = (ca || lgbm) ? `
+  const pricePageHtml = ca ? `
     <div style="page-break-before:always;padding-top:32px;">
       <div style="background:#0f3d78;color:white;padding:22px 28px;border-radius:10px;margin-bottom:22px;">
         <div style="font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;color:rgba(255,255,255,.55);margin-bottom:6px;">Compra Ágil · Asistente IA</div>
@@ -718,7 +1153,6 @@ function downloadFichaPDF() {
       </div>
       <div style="display:flex;gap:18px;">
         ${caCard}
-        ${lgbmCard}
       </div>
     </div>` : '';
 
@@ -788,6 +1222,8 @@ function downloadFichaPDF() {
 
   const filename = `ficha-tecnica-compra-agil-${SESSION_ID.slice(0,6).toLowerCase()}.pdf`;
 
+  fetch(`/api/track/${SESSION_ID}`, { method: 'POST', headers: { ..._headers(), 'Content-Type': 'application/json' }, body: JSON.stringify({ tipo: 'pdf_download' }) }).catch(() => {});
+
   html2pdf().set({
     margin: [8, 8, 8, 8],
     filename,
@@ -803,14 +1239,11 @@ function downloadFichaPDF() {
 function resetUI() {
   state.ficha = {};
   state.priceData = null;
-  state.lgbmData = null;
   state.isTyping = false;
   state.streamingBubble = null;
   switchTab('chat');
   hidePriceLoading();
   hideFichaLoading();
-  const lgbmContainer = document.getElementById('lgbm-price-container');
-  if (lgbmContainer) lgbmContainer.innerHTML = '';
 
   const chatContainer = document.getElementById('chat-messages');
   Array.from(chatContainer.children).forEach(child => {
@@ -902,4 +1335,10 @@ document.addEventListener('DOMContentLoaded', () => {
   inputField.addEventListener('input', () => autoResizeTextarea(inputField));
 
   updateProgress();
+
+  // Cargar valores de dropdowns para autocompletado
+  fetch('/api/dropdowns')
+    .then(r => r.ok ? r.json() : {})
+    .then(data => { Object.assign(dropdowns, data); })
+    .catch(() => {});
 });

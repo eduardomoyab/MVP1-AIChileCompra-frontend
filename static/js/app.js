@@ -1697,6 +1697,17 @@ function renderUsage(usage) {
   const reset = document.getElementById('usage-reset');
   if (!bar || !text || !reset) return;
 
+  // daily_limit null = esta persona tiene acceso ilimitado (configurado
+  // en "Aplicaciones" en db-admin-panel) — no hay porcentaje que mostrar,
+  // solo el consumo acumulado del día como dato informativo.
+  if (usage.daily_limit == null) {
+    bar.style.width = '100%';
+    bar.className = 'h-full transition-all duration-300 bg-brand-400';
+    text.textContent = `${usage.tokens_used.toLocaleString('es-CL')} · Sin límite`;
+    reset.textContent = 'Acceso ilimitado';
+    return;
+  }
+
   const pct = Math.min(usage.percent_used ?? 0, 100);
   bar.style.width = `${pct}%`;
   bar.className = 'h-full transition-all duration-300 ' + (

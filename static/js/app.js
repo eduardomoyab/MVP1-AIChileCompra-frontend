@@ -93,6 +93,7 @@ function handleServerMessage(data) {
       hideTyping();
       state.streamingBubble = null;
       hideFichaLoading();
+      fetchUsage();
       break;
 
     case 'ficha_update':
@@ -155,6 +156,13 @@ function handleServerMessage(data) {
       appendBlockedMessage(data.message);
       break;
 
+    case 'usage_limit_reached':
+      hideTyping();
+      state.streamingBubble = null;
+      appendUsageLimitMessage(data.data);
+      renderUsage(data.data);
+      break;
+
     case 'error':
       hideTyping();
       state.streamingBubble = null;
@@ -208,6 +216,26 @@ function appendBlockedMessage(reason) {
       <p class="font-semibold text-amber-800 mb-1">Consulta fuera del ámbito</p>
       <p class="text-amber-700 text-[13px]">Este asistente está diseñado exclusivamente para ayudarte a especificar equipos computacionales en Compra Ágil.</p>
       ${reason ? `<p class="text-amber-600 text-[12px] mt-1.5 italic">${escapeHtml(reason)}</p>` : ''}
+    </div>`;
+  const emptyState = document.getElementById('chat-empty');
+  if (emptyState) emptyState.style.display = 'none';
+  container.appendChild(wrap);
+  container.scrollTop = container.scrollHeight;
+}
+
+function appendUsageLimitMessage(usage) {
+  const container = document.getElementById('chat-messages');
+  const wrap = document.createElement('div');
+  wrap.className = 'flex gap-3 justify-start animate-in';
+  wrap.innerHTML = `
+    <div class="w-9 h-9 rounded-full bg-red-100 border border-red-200 flex items-center justify-center flex-shrink-0 mt-1">
+      <svg class="w-4 h-4 text-red-600" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v4m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/>
+      </svg>
+    </div>
+    <div class="max-w-[82%] px-4 py-3 text-[14px] leading-relaxed bg-red-50 border border-red-200 rounded-2xl rounded-tl-sm">
+      <p class="font-semibold text-red-800 mb-1">Límite diario alcanzado</p>
+      <p class="text-red-700 text-[13px]">Ya usaste tu cuota de tokens de hoy. El chat se reactiva ${formatResetTime(usage && usage.resets_at)}.</p>
     </div>`;
   const emptyState = document.getElementById('chat-empty');
   if (emptyState) emptyState.style.display = 'none';
@@ -1634,6 +1662,59 @@ function useSuggestion(text) {
   document.getElementById('chat-input-field').focus();
 }
 
+// ── Cuenta: panel + uso diario ──────────────────────────────────────
+function toggleAccountPanel() {
+  const panel = document.getElementById('account-panel');
+  if (!panel) return;
+  panel.classList.toggle('hidden');
+}
+
+document.addEventListener('click', (e) => {
+  const panel = document.getElementById('account-panel');
+  const btn = document.getElementById('account-btn');
+  if (!panel || panel.classList.contains('hidden')) return;
+  if (panel.contains(e.target) || (btn && btn.contains(e.target))) return;
+  panel.classList.add('hidden');
+});
+
+function formatResetTime(resetsAtIso) {
+  if (!resetsAtIso) return 'a medianoche (hora Chile)';
+  const resetsAt = new Date(resetsAtIso);
+  const diffMs = resetsAt - new Date();
+  if (diffMs <= 0) return 'en cualquier momento';
+  const h = Math.floor(diffMs / 3600000);
+  const m = Math.round((diffMs % 3600000) / 60000);
+  const parts = [];
+  if (h > 0) parts.push(`${h}h`);
+  parts.push(`${m}min`);
+  return `en ${parts.join(' ')}`;
+}
+
+function renderUsage(usage) {
+  if (!usage) return;
+  const bar = document.getElementById('usage-bar');
+  const text = document.getElementById('usage-text');
+  const reset = document.getElementById('usage-reset');
+  if (!bar || !text || !reset) return;
+
+  const pct = Math.min(usage.percent_used ?? 0, 100);
+  bar.style.width = `${pct}%`;
+  bar.className = 'h-full transition-all duration-300 ' + (
+    pct >= 100 ? 'bg-red-500' : pct >= 80 ? 'bg-amber-500' : 'bg-emerald-500'
+  );
+  text.textContent = `${usage.tokens_used.toLocaleString('es-CL')} / ${usage.daily_limit.toLocaleString('es-CL')}`;
+  reset.textContent = usage.blocked
+    ? `Se reinicia ${formatResetTime(usage.resets_at)}`
+    : `Se reinicia a las 00:00 (hora Chile)`;
+}
+
+function fetchUsage() {
+  fetch(`/api/usage`, { headers: _headers() })
+    .then(r => r.ok ? r.json() : null)
+    .then(data => { if (data) renderUsage(data); })
+    .catch(() => {});
+}
+
 // ── Init ──────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
 
@@ -1644,6 +1725,7 @@ document.addEventListener('DOMContentLoaded', () => {
   inputField.addEventListener('input', () => autoResizeTextarea(inputField));
 
   updateProgress();
+  fetchUsage();
 
   // Cargar valores de dropdowns para autocompletado
   fetch('/api/dropdowns')

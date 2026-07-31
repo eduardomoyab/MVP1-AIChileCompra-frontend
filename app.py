@@ -69,7 +69,12 @@ def _require_login():
 
 @app.route("/")
 def index():
-    return render_template("index.html")
+    return render_template(
+        "index.html",
+        user_name=session.get("name"),
+        user_email=session.get("email"),
+        user_provider=session.get("provider"),
+    )
 
 
 @app.route("/api/<path:path>", methods=["POST", "GET"])
@@ -77,7 +82,11 @@ def index():
 @auth.limiter.limit("300 per minute", key_func=get_remote_address)  # por IP — red de contención ante algo masivo desde un mismo origen
 def proxy(path):
     url = f"{API_URL}/api/{path}"
-    headers = {"x-api-key": FRONTEND_API_KEY, "Content-Type": "application/json"}
+    headers = {
+        "x-api-key": FRONTEND_API_KEY,
+        "x-user-email": session.get("email", ""),
+        "Content-Type": "application/json",
+    }
     data = request.get_data()
 
     def generate():

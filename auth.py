@@ -118,11 +118,13 @@ def _no_access(email):
     return redirect(url_for("auth.login"))
 
 
-def _start_session(email):
+def _start_session(email, name=None, provider=None):
     session.clear()
     session.permanent = True
     session["logged_in"] = True
     session["email"] = email
+    session["name"] = name or email
+    session["provider"] = provider
     return redirect(url_for("index"))
 
 
@@ -162,11 +164,12 @@ def google_callback():
     userinfo = token.get("userinfo") or {}
     email = (userinfo.get("email") or "").strip().lower()
     email_verified = userinfo.get("email_verified", False)
+    name = userinfo.get("name")
 
     if not (email_verified and email and is_email_allowed(email)):
         return _no_access(email)
 
-    return _start_session(email)
+    return _start_session(email, name, "google")
 
 
 @bp.route("/login/microsoft")
@@ -203,11 +206,12 @@ def microsoft_callback():
         preferred = (userinfo.get("preferred_username") or "").strip().lower()
         if "@" in preferred:
             email = preferred
+    name = userinfo.get("name")
 
     if not (email and is_email_allowed(email)):
         return _no_access(email)
 
-    return _start_session(email)
+    return _start_session(email, name, "microsoft")
 
 
 @bp.route("/logout")

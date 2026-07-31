@@ -1697,13 +1697,14 @@ function renderUsage(usage) {
   const reset = document.getElementById('usage-reset');
   if (!bar || !text || !reset) return;
 
-  // daily_limit null = esta persona tiene acceso ilimitado (configurado
-  // en "Aplicaciones" en db-admin-panel) — no hay porcentaje que mostrar,
-  // solo el consumo acumulado del día como dato informativo.
-  if (usage.daily_limit == null) {
+  // unlimited = esta persona tiene acceso ilimitado (configurado en
+  // "Aplicaciones" en db-admin-panel) — no hay porcentaje que mostrar. El
+  // backend ya no manda números de tokens crudos en absoluto (ver
+  // usage_service.to_public en el backend) — solo % / bloqueado / reset.
+  if (usage.unlimited) {
     bar.style.width = '100%';
     bar.className = 'h-full transition-all duration-300 bg-brand-400';
-    text.textContent = `${usage.tokens_used.toLocaleString('es-CL')} · Sin límite`;
+    text.textContent = 'Sin límite';
     reset.textContent = 'Acceso ilimitado';
     return;
   }
@@ -1713,7 +1714,7 @@ function renderUsage(usage) {
   bar.className = 'h-full transition-all duration-300 ' + (
     pct >= 100 ? 'bg-red-500' : pct >= 80 ? 'bg-amber-500' : 'bg-emerald-500'
   );
-  text.textContent = `${usage.tokens_used.toLocaleString('es-CL')} / ${usage.daily_limit.toLocaleString('es-CL')}`;
+  text.textContent = `${Math.round(pct)}% usado`;
   reset.textContent = usage.blocked
     ? `Se reinicia ${formatResetTime(usage.resets_at)}`
     : `Se reinicia a las 00:00 (hora Chile)`;

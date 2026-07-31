@@ -2,9 +2,12 @@
 auth.py — Login con Google para el Asistente Compra Ágil.
 
 Acceso gateado por lista blanca de correos, administrada desde el módulo
-"Aplicaciones" de db-admin-panel (mismo Postgres, schema `panel_admin`).
-MVP1 no mantiene su propia tabla de usuarios: solo consulta esa lista
-blanca al momento del login.
+"Aplicaciones" de db-admin-panel. MVP1 no mantiene su propia tabla de
+usuarios ni tiene credenciales de Postgres propias: el frontend le
+pregunta al backend (que ya tiene DATABASE_URL para PrecioCA/PrecioCM) vía
+GET /api/auth/check_access — mismo patrón de API key que el resto del
+proxy en app.py. El frontend no debe tener ninguna conexión más que al
+backend.
 
 No hay usuario/contraseña de respaldo (a diferencia de db-admin-panel):
 esta app no tiene concepto de admin/roles que lo justifique.
@@ -12,14 +15,12 @@ esta app no tiene concepto de admin/roles que lo justifique.
 import os
 from functools import wraps
 
-import psycopg2
+import httpx
 from authlib.integrations.flask_client import OAuth
 from flask import Blueprint, abort, current_app, flash, redirect, render_template, session, url_for
 
 bp = Blueprint("auth", __name__)
 oauth = OAuth()
-
-APPLICATION_SLUG = "mvp1-compra-agil"
 
 
 def init_oauth(app):
@@ -35,23 +36,20 @@ def init_oauth(app):
 
 
 def is_email_allowed(email: str) -> bool:
-    """Consulta directa a panel_admin.application_users (mismo Postgres que
-    db-admin-panel) — sin pool, MVP1 no tiene el volumen para justificarlo."""
-    dsn = os.getenv("DATABASE_URL")
-    if not dsn:
-        return False
+    """Le pregunta al backend (GET /api/auth/check_access) en vez de tocar
+    Postgres directo — el frontend no tiene ni debe tener credenciales de
+    base de datos propias."""
+    api_url = os.getenv("API_URL", "http://localhost:8000")
+    api_key = os.getenv("FRONTEND_API_KEY", "")
     try:
-        with psycopg2.connect(dsn, connect_timeout=10) as conn:
-            with conn.cursor() as cur:
-                cur.execute(
-                    """
-                    SELECT 1 FROM panel_admin.application_users au
-                    JOIN panel_admin.applications a ON a.id = au.application_id
-                    WHERE a.slug = %s AND au.email = %s
-                    """,
-                    (APPLICATION_SLUG, email),
-                )
-                return cur.fetchone() is not None
+        resp = httpx.get(
+            f"{api_url}/api/auth/check_access",
+            params={"email": email},
+            headers={"x-api-key": api_key},
+            timeout=10,
+        )
+        resp.raise_for_status()
+        return bool(resp.json().get("allowed"))
     except Exception:
         current_app.logger.exception("Error consultando lista blanca de acceso")
         return False

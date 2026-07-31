@@ -4,12 +4,19 @@ from datetime import timedelta
 import httpx
 from flask import Flask, redirect, render_template, send_from_directory, request, Response, session, stream_with_context, url_for
 from dotenv import load_dotenv
+from werkzeug.middleware.proxy_fix import ProxyFix
 
 import auth
 
 load_dotenv()
 
 app = Flask(__name__)
+
+# Railway (como cualquier PaaS con proxy delante) hace que Flask vea HTTP
+# internamente aunque el usuario entre por HTTPS -- sin esto, url_for(...,
+# _external=True) arma el redirect_uri de Google OAuth como http://, que no
+# calza con lo registrado en Google Cloud Console y el login falla.
+app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=0, x_port=0, x_prefix=0)
 
 API_URL          = os.getenv("API_URL", "http://localhost:8000")
 FRONTEND_API_KEY = os.getenv("FRONTEND_API_KEY", "")

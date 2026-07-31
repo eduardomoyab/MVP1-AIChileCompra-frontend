@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Ingresar · Asistente IA Compra Ágil</title>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,300;0,400;0,500;0,600;0,700;1,400&display=swap" rel="stylesheet">
+
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            brand: {
+              50:  '#e8f0fb', 100: '#c5d8f5', 200: '#9bbdee',
+              500: '#1e6cc5', 600: '#154f96', 700: '#0f3d78',
+              800: '#0a2d5e', 900: '#061e42',
+            }
+          }
+        }
+      }
+    }
+  </script>
+  <style> body { font-family: 'Inter', sans-serif; } </style>
+</head>
+<body class="min-h-screen bg-slate-100 text-slate-800">
+
+  <header class="h-[54px] lg:h-[68px] bg-white border-b border-slate-200 flex items-center justify-center px-3 lg:px-8 shadow-sm">
+    <div class="flex items-center gap-2 lg:gap-5">
+      <img src="/imagenes/logo-chilecompra.png" class="h-7 lg:h-10 w-auto max-w-[68px] lg:max-w-none object-contain" alt="ChileCompra" />
+      <div class="hidden sm:block w-px h-6 bg-slate-200 flex-shrink-0"></div>
+      <img src="/imagenes/logo-OCP.png" class="h-5 lg:h-8 w-auto max-w-[48px] lg:max-w-none object-contain" alt="OCP" />
+      <div class="hidden sm:block w-px h-6 bg-slate-200 flex-shrink-0"></div>
+      <img src="/imagenes/logo-UCBerkeley.png" class="h-5 lg:h-8 w-auto max-w-[48px] lg:max-w-none object-contain" alt="UC Berkeley" />
+      <div class="hidden sm:block w-px h-6 bg-slate-200 flex-shrink-0"></div>
+      <img src="/imagenes/logo-uch2.png" class="h-6 lg:h-10 w-auto max-w-[68px] lg:max-w-none object-contain" alt="Universidad de Chile" />
+    </div>
+  </header>
+
+  <div class="min-h-[calc(100vh-68px)] flex items-center justify-center px-4">
+    <div class="w-full max-w-md bg-white border border-slate-200 rounded-xl shadow-sm p-10">
+      <div class="flex items-center justify-center gap-1.5 mb-1.5">
+        <svg class="w-4 h-4 text-brand-600 flex-shrink-0" viewBox="0 0 24 24" fill="currentColor">
+          <path d="M12 2.5l1.8 5.6 5.7 1.4-5.7 1.4-1.8 5.6-1.8-5.6-5.7-1.4 5.7-1.4z"/>
+        </svg>
+        <h1 class="text-xl font-semibold text-brand-800 text-center">Asistente IA · Compra Ágil</h1>
+      </div>
+      <p class="text-sm text-slate-500 mb-7 text-center">Ingresa con tu cuenta de Google para continuar.</p>
+
+      {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+          <div class="mb-5 space-y-2">
+            {% for category, message in messages %}
+            <div class="rounded-lg px-4 py-3 text-sm border bg-red-50 text-red-700 border-red-200">{{ message }}</div>
+            {% endfor %}
+          </div>
+        {% endif %}
+      {% endwith %}
+
+      {% if google_login_enabled %}
+      <a href="{{ url_for('auth.login_google') }}"
+         class="w-full flex items-center justify-center gap-2.5 bg-white border border-slate-300 hover:bg-slate-50 hover:border-slate-400 text-slate-700 text-sm font-medium rounded-lg py-2.5 shadow-sm">
+        <svg class="w-4 h-4" viewBox="0 0 24 24">
+          <path fill="#4285F4" d="M23.52 12.27c0-.85-.08-1.67-.22-2.45H12v4.64h6.47a5.54 5.54 0 01-2.4 3.64v3h3.88c2.27-2.09 3.57-5.17 3.57-8.83z"/>
+          <path fill="#34A853" d="M12 24c3.24 0 5.95-1.08 7.93-2.9l-3.88-3c-1.08.72-2.45 1.15-4.05 1.15-3.11 0-5.75-2.1-6.69-4.93H1.3v3.1A12 12 0 0012 24z"/>
+          <path fill="#FBBC05" d="M5.31 14.32a7.2 7.2 0 010-4.64v-3.1H1.3a12 12 0 000 10.84l4.01-3.1z"/>
+          <path fill="#EA4335" d="M12 4.75c1.76 0 3.34.6 4.58 1.79l3.44-3.44C17.94 1.19 15.24 0 12 0A12 12 0 001.3 6.58l4.01 3.1C6.25 6.85 8.89 4.75 12 4.75z"/>
+        </svg>
+        Iniciar sesión con Google
+      </a>
+      {% else %}
+      <div class="rounded-lg px-4 py-3 text-sm bg-amber-50 text-amber-700 border border-amber-200 text-center">
+        El login con Google no está configurado en este entorno.
+      </div>
+      {% endif %}
+
+      <p class="text-xs text-slate-400 mt-6 text-center">
+        Solo cuentas autorizadas pueden acceder. Si necesitas acceso, contacta al administrador.
+      </p>
+    </div>
+  </div>
+
+</body>
+</html>

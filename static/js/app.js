@@ -37,6 +37,9 @@ const state = {
   ficha: {},
   priceData: null,
   priceLoading: false,
+  cmPriceData: null,
+  cmPriceLoading: false,
+  activePriceTab: 'cm',
   sending: false,
   isTyping: false,
   streamingBubble: null,
@@ -108,19 +111,42 @@ function handleServerMessage(data) {
 
     case 'price_update':
       state.priceData = data.data;
-      hidePriceLoading();
+      state.priceLoading = false;
       _offersData = [];
       _offersFetched = false;
       _offersSort = 'fecha_desc';
       _offersGroup = 'none';
       _offersExpanded = new Set();
       _offersGroupKeys = [];
+      ensurePriceShell();
       renderPriceEstimate(data.data);
+      maybeStopPriceLoadingAnim();
       break;
 
     case 'price_not_found':
-      hidePriceLoading();
-      document.getElementById('price-container').innerHTML = priceNotFoundHtml();
+      state.priceData = null;
+      state.priceLoading = false;
+      ensurePriceShell();
+      document.getElementById('price-panel-ca').innerHTML = priceNotFoundHtml();
+      maybeStopPriceLoadingAnim();
+      break;
+
+    case 'cm_price_update':
+      state.cmPriceData = data.data;
+      state.cmPriceLoading = false;
+      _cmOffersData = [];
+      _cmOffersFetched = false;
+      ensurePriceShell();
+      renderCMPriceEstimate(data.data);
+      maybeStopPriceLoadingAnim();
+      break;
+
+    case 'cm_price_not_found':
+      state.cmPriceData = null;
+      state.cmPriceLoading = false;
+      ensurePriceShell();
+      document.getElementById('price-panel-cm').innerHTML = cmPriceNotFoundHtml();
+      maybeStopPriceLoadingAnim();
       break;
 
     case 'blocked':
@@ -730,8 +756,10 @@ let _priceLoadingTimeout = null;
 let _priceLoadingMsgIdx = 0;
 
 function showPriceLoading() {
-  if (state.priceLoading) return;
+  if (state.priceLoading || state.cmPriceLoading) return;
   state.priceLoading = true;
+  state.cmPriceLoading = true;
+  _priceShellReady = false;
   _priceLoadingMsgIdx = 0;
 
   const container = document.getElementById('price-container');
@@ -753,22 +781,76 @@ function showPriceLoading() {
 
   clearTimeout(_priceLoadingTimeout);
   _priceLoadingTimeout = setTimeout(() => {
-    if (state.priceLoading) hidePriceLoading(true);
+    if (state.priceLoading || state.cmPriceLoading) hidePriceLoading(true);
   }, 40000);
+}
+
+function maybeStopPriceLoadingAnim() {
+  if (!state.priceLoading && !state.cmPriceLoading) {
+    clearInterval(_priceLoadingInterval);
+    clearTimeout(_priceLoadingTimeout);
+  }
 }
 
 function hidePriceLoading(showEmpty = false) {
   state.priceLoading = false;
+  state.cmPriceLoading = false;
   clearInterval(_priceLoadingInterval);
   clearTimeout(_priceLoadingTimeout);
   if (showEmpty) {
+    _priceShellReady = false;
+    state.priceData = null;
+    state.cmPriceData = null;
     document.getElementById('price-container').innerHTML = priceEmptyHtml();
   }
 }
 
-// ── Precio: resultado ─────────────────────────────────────────────
-function renderPriceEstimate(data) {
+// ── Precio: shell de tabs (Convenio Marco / Compra Ágil) ───────────
+let _priceShellReady = false;
+
+function ensurePriceShell() {
+  if (_priceShellReady && document.getElementById('price-panel-cm')) return;
+  _priceShellReady = true;
   const container = document.getElementById('price-container');
+  container.innerHTML = `
+    <div class="flex items-center gap-1 mb-2 bg-slate-100 rounded-lg p-1 animate-in">
+      <button id="price-tab-btn-cm" onclick="switchPriceTab('cm')" class="flex-1 text-[11px] lg:text-[12px] font-semibold py-1.5 rounded-md transition-colors">Convenio Marco</button>
+      <button id="price-tab-btn-ca" onclick="switchPriceTab('ca')" class="flex-1 text-[11px] lg:text-[12px] font-semibold py-1.5 rounded-md transition-colors">Compra Ágil</button>
+    </div>
+    <div id="price-panel-cm">${pricePanelLoadingHtml()}</div>
+    <div id="price-panel-ca" class="hidden">${pricePanelLoadingHtml()}</div>`;
+  switchPriceTab(state.activePriceTab || 'cm');
+}
+
+function pricePanelLoadingHtml() {
+  return `
+    <div class="bg-white border border-slate-200 rounded-xl shadow-sm px-4 py-3 flex items-center gap-3 animate-in">
+      <div class="price-spinner" style="width:20px;height:20px;"></div>
+      <p class="text-[12px] text-slate-400">Buscando…</p>
+    </div>`;
+}
+
+function switchPriceTab(tab) {
+  state.activePriceTab = tab;
+  const cmPanel = document.getElementById('price-panel-cm');
+  const caPanel = document.getElementById('price-panel-ca');
+  const cmBtn = document.getElementById('price-tab-btn-cm');
+  const caBtn = document.getElementById('price-tab-btn-ca');
+  if (!cmPanel || !caPanel || !cmBtn || !caBtn) return;
+  cmPanel.classList.toggle('hidden', tab !== 'cm');
+  caPanel.classList.toggle('hidden', tab !== 'ca');
+  const base = 'flex-1 text-[11px] lg:text-[12px] font-semibold py-1.5 rounded-md transition-colors';
+  const cmActive   = `${base} bg-emerald-600 text-white shadow-sm`;
+  const cmInactive = `${base} text-emerald-700 bg-emerald-100 hover:bg-emerald-200`;
+  const caActive   = `${base} bg-brand-600 text-white shadow-sm`;
+  const caInactive = `${base} text-brand-700 bg-blue-100 hover:bg-blue-200`;
+  cmBtn.className = tab === 'cm' ? cmActive : cmInactive;
+  caBtn.className = tab === 'ca' ? caActive : caInactive;
+}
+
+// ── Precio: resultado (Compra Ágil) ─────────────────────────────────
+function renderPriceEstimate(data) {
+  const container = document.getElementById('price-panel-ca');
   if (!container) return;
 
   const fmt = (n) => n != null
@@ -801,6 +883,9 @@ function renderPriceEstimate(data) {
           <span class="text-[12px] lg:text-[13px] font-semibold text-white">Estimación · Compra Ágil</span>
         </div>
         <span class="text-[11px] lg:text-[12px] text-blue-200 opacity-80">${data.count.toLocaleString('es-CL')} ofertas</span>
+      </div>
+      <div class="px-3 pt-1.5 lg:px-4 bg-amber-50 border-b border-amber-100">
+        <p class="text-[10px] lg:text-[11px] text-amber-700 py-1 leading-snug">Referencial — compras anteriores, el precio puede variar</p>
       </div>
       <div class="px-3 py-2 lg:px-4 lg:py-3">
         <div class="flex items-center justify-between gap-2 mb-1.5 lg:mb-2.5">
@@ -843,6 +928,208 @@ function renderPriceEstimate(data) {
         <div class="text-center py-4 text-[12px] text-slate-400">Cargando transacciones...</div>
       </div>
     </div>`;
+}
+
+// ── Precio: resultado (Convenio Marco) ──────────────────────────────
+function renderCMPriceEstimate(data) {
+  const container = document.getElementById('price-panel-cm');
+  if (!container) return;
+
+  const fmt = (n) => n != null
+    ? `CLP $${new Intl.NumberFormat('es-CL', { maximumFractionDigits: 0 }).format(n)}`
+    : '—';
+  const fmtUsd = (n) => n != null
+    ? `USD $${new Intl.NumberFormat('es-CL', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n)}`
+    : '—';
+
+  const fxNoteBox = `
+    <div class="flex items-start gap-2.5 bg-blue-50 border border-blue-200 rounded-lg px-3 py-2.5 mt-2">
+      <svg class="w-4 h-4 flex-shrink-0 text-blue-500 mt-0.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+        <circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/>
+      </svg>
+      <p class="text-[12px] text-blue-700 leading-snug">
+        ${data.fx_fallback
+          ? '⚠ Conversión con valor de referencia — no se pudo consultar el tipo de cambio del día'
+          : `Convertido según <strong>${data.fx_source || 'Banco Central de Chile (vía mindicador.cl)'}</strong> · <strong>$${Math.round(data.fx_rate).toLocaleString('es-CL')} CLP/USD</strong>${data.fx_date ? ` · ${data.fx_date}` : ''}`}
+      </p>
+    </div>`;
+
+  const broadWarning = data.broad_warning ? `
+    <div class="flex items-start gap-2.5 bg-amber-50 border border-amber-300 rounded-lg px-3 py-2.5 mt-2">
+      <svg class="w-4 h-4 flex-shrink-0 text-amber-500 mt-0.5" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v4m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/>
+      </svg>
+      <div>
+        <p class="text-[12px] font-semibold text-amber-700 leading-tight">Búsqueda muy amplia (${data.count.toLocaleString('es-CL')} productos)</p>
+        <p class="text-[11px] text-amber-600 mt-0.5 leading-snug">Solo se filtró por tipo de equipo. Agrega RAM, almacenamiento, marca o procesador para acotar los resultados.</p>
+      </div>
+    </div>` : '';
+
+  const relaxedWarning = data.processor_relaxed ? `
+    <div class="flex items-start gap-2.5 bg-amber-50 border border-amber-300 rounded-lg px-3 py-2.5 mt-2">
+      <svg class="w-4 h-4 flex-shrink-0 text-amber-500 mt-0.5" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v4m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/>
+      </svg>
+      <div>
+        <p class="text-[12px] font-semibold text-amber-700 leading-tight">Sin coincidencia exacta de procesador</p>
+        <p class="text-[11px] text-amber-600 mt-0.5 leading-snug">Se muestran productos del catálogo con el resto de las características solicitadas (tipo, RAM, almacenamiento).</p>
+      </div>
+    </div>` : '';
+
+  const unverifiedNote = (data.unverified_attrs && data.unverified_attrs.length) ? `
+    <div class="flex items-start gap-2.5 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2.5 mt-2">
+      <svg class="w-4 h-4 flex-shrink-0 text-slate-400 mt-0.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+        <circle cx="12" cy="12" r="10"/><path stroke-linecap="round" stroke-linejoin="round" d="M9.09 9a3 3 0 015.83 1c0 2-3 2-3 4"/><line x1="12" y1="17" x2="12.01" y2="17"/>
+      </svg>
+      <div>
+        <p class="text-[12px] font-semibold text-slate-600 leading-tight">No se pudo verificar en Convenio Marco</p>
+        <p class="text-[11px] text-slate-500 mt-0.5 leading-snug">${data.unverified_attrs.join(', ')} — el catálogo no registra este dato para los productos listados.</p>
+      </div>
+    </div>` : '';
+
+  container.innerHTML = `
+    <div class="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden animate-in">
+      <div class="flex items-center justify-between px-3 py-1.5 lg:px-4 lg:py-2 bg-gradient-to-r from-emerald-700 to-emerald-600">
+        <div class="flex items-center gap-2">
+          <span class="relative flex h-2 w-2">
+            <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-200 opacity-75"></span>
+            <span class="relative inline-flex rounded-full h-2 w-2 bg-emerald-200"></span>
+          </span>
+          <span class="text-[12px] lg:text-[13px] font-semibold text-white">Convenio Marco · Catálogo vigente</span>
+        </div>
+        <span class="text-[11px] lg:text-[12px] text-emerald-100 opacity-90">${data.count.toLocaleString('es-CL')} productos</span>
+      </div>
+      <div class="px-3 py-2 lg:px-4 lg:py-3">
+        <div class="flex items-center justify-between gap-2 mb-1.5 lg:mb-2.5">
+          <div>
+            <p class="text-lg lg:text-3xl font-bold text-emerald-700 leading-none">${fmt(data.median ?? data.min)}</p>
+            <p class="text-[11px] lg:text-[13px] text-slate-400 mt-0.5">precio mediano</p>
+          </div>
+          <div class="text-right flex-shrink-0">
+            <p class="text-[10px] lg:text-[12px] text-slate-400 mb-0.5">Rango de precios</p>
+            <p class="text-[12px] lg:text-[13px] font-medium text-slate-600">${fmt(data.min)} – ${fmt(data.max)}</p>
+            <p class="text-[11px] text-slate-400 mt-0.5">${fmtUsd(data.min_usd)} – ${fmtUsd(data.max_usd)}</p>
+          </div>
+        </div>
+        <div class="text-center text-[10px] text-slate-300 border-t border-slate-100 pt-1.5">
+          ${data.match_description}
+        </div>
+        ${fxNoteBox}
+        ${broadWarning}
+        ${relaxedWarning}
+        ${unverifiedNote}
+      </div>
+    </div>
+    <div class="mt-2">
+      <button onclick="toggleCMOffers()" class="w-full flex items-center justify-between px-3 py-2.5 bg-emerald-50 border border-emerald-200 rounded-xl text-[12px] font-semibold text-emerald-700 hover:bg-emerald-100 hover:border-emerald-300 transition-colors group">
+        <span class="flex items-center gap-2">
+          <svg class="w-3.5 h-3.5 text-emerald-500" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/>
+          </svg>
+          Ver productos del catálogo
+          <span class="text-[10px] font-normal text-emerald-600 bg-emerald-100 border border-emerald-200 px-1.5 py-0.5 rounded-full group-hover:bg-emerald-200">Presiona para expandir</span>
+        </span>
+        <svg id="cm-offers-chevron" class="w-4 h-4 text-emerald-400 transition-transform duration-200" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+          <polyline points="6 9 12 15 18 9"/>
+        </svg>
+      </button>
+      <div id="cm-offers-list" class="hidden mt-1.5">
+        <div class="text-center py-4 text-[12px] text-slate-400">Cargando productos...</div>
+      </div>
+    </div>`;
+}
+
+// ── Sin precio encontrado (Convenio Marco) ──────────────────────────
+function cmPriceNotFoundHtml() {
+  return `
+    <div class="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 flex items-start gap-3">
+      <svg class="w-4 h-4 flex-shrink-0 text-amber-400 mt-0.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+        <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
+      </svg>
+      <div>
+        <p class="text-[13px] font-semibold text-amber-700">Sin productos en el catálogo vigente</p>
+        <p class="text-[12px] text-amber-600 mt-0.5 leading-snug">No encontramos equipos similares en Convenio Marco. Puedes revisar la referencia de Compra Ágil en la otra pestaña.</p>
+      </div>
+    </div>`;
+}
+
+let _cmOffersData = [];
+let _cmOffersFetched = false;
+
+function toggleCMOffers() {
+  const list = document.getElementById('cm-offers-list');
+  const chevron = document.getElementById('cm-offers-chevron');
+  if (!list) return;
+  const isHidden = list.classList.contains('hidden');
+  list.classList.toggle('hidden');
+  if (chevron) chevron.style.transform = isHidden ? 'rotate(180deg)' : '';
+  if (isHidden && !_cmOffersFetched) fetchCMOffers();
+}
+
+async function fetchCMOffers() {
+  const list = document.getElementById('cm-offers-list');
+  try {
+    const resp = await fetch(`/api/cm_offers/${SESSION_ID}`, { headers: _headers() });
+    if (!resp.ok) throw new Error('offers fetch failed');
+    const { offers } = await resp.json();
+    _cmOffersData = offers || [];
+    _cmOffersFetched = true;
+    renderCMOffers();
+  } catch (e) {
+    if (list) list.innerHTML = `<div class="text-center py-4 text-[12px] text-red-400">No se pudieron cargar los productos</div>`;
+  }
+}
+
+function renderCMOffers() {
+  const list = document.getElementById('cm-offers-list');
+  if (!list) return;
+
+  if (!_cmOffersData.length) {
+    list.innerHTML = `<div class="text-center py-4 text-[12px] text-slate-400">Sin productos para mostrar</div>`;
+    return;
+  }
+
+  const fmt = (n) => n != null
+    ? `CLP $${new Intl.NumberFormat('es-CL', { maximumFractionDigits: 0 }).format(n)}`
+    : '—';
+
+  const fmtUsd = (n) => n != null
+    ? `USD $${new Intl.NumberFormat('es-CL', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n)}`
+    : '—';
+
+  const cards = _cmOffersData.map(o => {
+    const extras = [
+      o.sistema_operativo,
+      o.wifi_generacion ? `Wi-Fi ${o.wifi_generacion}` : null,
+      o.puntaje_passmark_cpu ? `PassMark ${o.puntaje_passmark_cpu}` : null,
+      o.peso_equipo,
+      o.monitor_si_no ? `Monitor: ${o.monitor_si_no}` : null,
+    ].filter(Boolean).join(' · ');
+
+    return `
+    <div class="bg-white border border-slate-200 rounded-lg px-3 py-2.5 mb-1.5">
+      <div class="flex items-start justify-between gap-3">
+        <div class="min-w-0">
+          <p class="text-[12.5px] font-semibold text-slate-700 truncate">${o.marca ?? ''} ${o.modelo ?? o.nombre ?? ''}</p>
+          <p class="text-[11px] text-slate-400 mt-0.5 truncate">${o.procesador_principal ?? '—'} &nbsp;·&nbsp; ${o.total_ram_gb ?? '—'} &nbsp;·&nbsp; ${o.total_almacenamiento_gb ?? '—'}</p>
+          ${extras ? `<p class="text-[10.5px] text-slate-400 mt-1 truncate">${extras}</p>` : ''}
+        </div>
+        <div class="text-right flex-shrink-0">
+          <p class="text-[13px] font-semibold text-slate-700">${fmt(o.precio_min_clp)}${o.precio_max_clp && o.precio_max_clp !== o.precio_min_clp ? ` – ${fmt(o.precio_max_clp)}` : ''}</p>
+          <p class="text-[10.5px] text-slate-400 mt-0.5">${fmtUsd(o.precio_min_usd)}${o.precio_max_usd && o.precio_max_usd !== o.precio_min_usd ? ` – ${fmtUsd(o.precio_max_usd)}` : ''}</p>
+        </div>
+      </div>
+      ${o.url ? `
+      <a href="${o.url}" target="_blank" rel="noopener" class="mt-2 inline-flex items-center gap-1.5 px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-semibold rounded-md transition-colors">
+        Ver en Convenio Marco
+        <svg class="w-3 h-3" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/>
+        </svg>
+      </a>` : ''}
+    </div>`;
+  }).join('');
+
+  list.innerHTML = `<div class="max-h-80 overflow-y-auto pr-0.5">${cards}</div>`;
 }
 
 let _offersData = [];
@@ -1120,18 +1407,35 @@ function downloadFichaPDF() {
 
   // Página de precios: page break + diseño en dos columnas
   const ca = state.priceData;
+  const cm = state.cmPriceData;
   const _stat = (lbl, val, border = '#dbeafe') =>
     `<div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid ${border};">
        <span style="font-size:10px;color:#64748b;">${lbl}</span>
        <span style="font-size:10.5px;font-weight:700;color:#1e293b;">${val}</span>
      </div>`;
 
+  let cmCard = '';
+  if (cm) {
+    cmCard = `
+      <div style="flex:1;border:1.5px solid #a7e5c8;border-radius:10px;overflow:hidden;">
+        <div style="background:#0f7a4f;padding:20px 22px;">
+          <div style="font-size:9px;letter-spacing:.09em;text-transform:uppercase;color:rgba(255,255,255,.7);margin-bottom:8px;">Convenio Marco · Catálogo vigente</div>
+          <div style="font-size:32px;font-weight:900;color:#fff;line-height:1;">${fmt(cm.median ?? cm.min)}</div>
+          <div style="font-size:10px;color:rgba(255,255,255,.75);margin-top:5px;">precio mediano</div>
+        </div>
+        <div style="background:#f0faf4;padding:16px 22px;">
+          ${_stat('Rango de precios', `${fmt(cm.min)} – ${fmt(cm.max)}`, '#d1f0dd')}
+          <div style="font-size:9px;color:#94a3b8;margin-top:10px;font-style:italic;">Basado en ${cm.count.toLocaleString('es-CL')} productos · ${cm.match_description}</div>
+        </div>
+      </div>`;
+  }
+
   let caCard = '';
   if (ca) {
     caCard = `
       <div style="flex:1;border:1.5px solid #c5d8f5;border-radius:10px;overflow:hidden;">
         <div style="background:#154f96;padding:20px 22px;">
-          <div style="font-size:9px;letter-spacing:.09em;text-transform:uppercase;color:rgba(255,255,255,.6);margin-bottom:8px;">Estimación · Compra Ágil</div>
+          <div style="font-size:9px;letter-spacing:.09em;text-transform:uppercase;color:rgba(255,255,255,.6);margin-bottom:8px;">Estimación · Compra Ágil (referencial)</div>
           <div style="font-size:32px;font-weight:900;color:#fff;line-height:1;">${fmt(ca.mean)}</div>
           <div style="font-size:10px;color:rgba(255,255,255,.7);margin-top:5px;">estimación sin IVA</div>
           <div style="font-size:13px;font-weight:600;color:rgba(255,255,255,.9);margin-top:4px;">${fmt(ca.mean_iva)} <span style="font-weight:400;font-size:10px;">con IVA</span></div>
@@ -1144,7 +1448,7 @@ function downloadFichaPDF() {
       </div>`;
   }
 
-  const pricePageHtml = ca ? `
+  const pricePageHtml = (ca || cm) ? `
     <div style="page-break-before:always;padding-top:32px;">
       <div style="background:#0f3d78;color:white;padding:22px 28px;border-radius:10px;margin-bottom:22px;">
         <div style="font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;color:rgba(255,255,255,.55);margin-bottom:6px;">Compra Ágil · Asistente IA</div>
@@ -1152,7 +1456,7 @@ function downloadFichaPDF() {
         <div style="font-size:10.5px;color:rgba(255,255,255,.65);margin-top:4px;">Generado el ${now}</div>
       </div>
       <div style="display:flex;gap:18px;">
-        ${caCard}
+        ${cmCard}${caCard}
       </div>
     </div>` : '';
 
@@ -1239,11 +1543,16 @@ function downloadFichaPDF() {
 function resetUI() {
   state.ficha = {};
   state.priceData = null;
+  state.cmPriceData = null;
+  state.activePriceTab = 'cm';
   state.isTyping = false;
   state.streamingBubble = null;
   switchTab('chat');
   hidePriceLoading();
   hideFichaLoading();
+  _priceShellReady = false;
+  _cmOffersData = [];
+  _cmOffersFetched = false;
 
   const chatContainer = document.getElementById('chat-messages');
   Array.from(chatContainer.children).forEach(child => {

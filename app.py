@@ -4,6 +4,7 @@ from datetime import timedelta
 import httpx
 from flask import Flask, redirect, render_template, send_from_directory, request, Response, session, stream_with_context, url_for
 from dotenv import load_dotenv
+from flask_limiter.util import get_remote_address
 from werkzeug.middleware.proxy_fix import ProxyFix
 
 import auth
@@ -39,7 +40,16 @@ app.config["MICROSOFT_CLIENT_SECRET"] = os.getenv("MICROSOFT_CLIENT_SECRET", "")
 app.config["MICROSOFT_LOGIN_ENABLED"] = bool(app.config["MICROSOFT_CLIENT_ID"] and app.config["MICROSOFT_CLIENT_SECRET"])
 
 auth.init_oauth(app)
+auth.limiter.init_app(app)
 app.register_blueprint(auth.bp)
+
+
+@auth.limiter.request_filter
+def _exempt_static():
+    # CSS/JS/logos no necesitan rate limit propio, ya vienen acotados por
+    # el límite de la página que los pide.
+    return request.endpoint in ("static", "serve_imagenes")
+
 
 # Endpoints alcanzables sin sesión: login, sus callbacks, y estáticos/logos.
 _PUBLIC_ENDPOINTS = {
@@ -63,6 +73,8 @@ def index():
 
 
 @app.route("/api/<path:path>", methods=["POST", "GET"])
+@auth.limiter.limit("60 per minute")  # por persona (sesión) — cada usuario tiene su propio balde
+@auth.limiter.limit("300 per minute", key_func=get_remote_address)  # por IP — red de contención ante algo masivo desde un mismo origen
 def proxy(path):
     url = f"{API_URL}/api/{path}"
     headers = {"x-api-key": FRONTEND_API_KEY, "Content-Type": "application/json"}

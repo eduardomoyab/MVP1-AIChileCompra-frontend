@@ -19,9 +19,30 @@ from functools import wraps
 import httpx
 from authlib.integrations.flask_client import OAuth
 from flask import Blueprint, abort, current_app, flash, redirect, render_template, session, url_for
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
 
 bp = Blueprint("auth", __name__)
 oauth = OAuth()
+
+
+def _rate_limit_key():
+    # Una vez logueado, el límite sigue a la persona (su sesión), no a su
+    # IP -- varios funcionarios de una misma oficina/NAT no deberían
+    # compartir el mismo balde de rate limit. Antes de loguearse (pantalla
+    # de login, callbacks de OAuth) cae a IP, que es lo único que hay.
+    return session.get("email") or get_remote_address()
+
+
+# Límite global por sesión/IP contra flood a nivel de aplicación. Storage en
+# memoria del propio proceso -- si algún día se corre con más de un worker,
+# necesita pasar a un backend compartido (Redis), cada worker tendría su
+# propio balde si no.
+limiter = Limiter(
+    key_func=_rate_limit_key,
+    default_limits=["300 per minute", "4000 per hour"],
+    storage_uri="memory://",
+)
 
 # El endpoint "common" de Microsoft (cuentas personales + de organización)
 # devuelve en su discovery doc un issuer con placeholder sin resolver
@@ -106,6 +127,7 @@ def _start_session(email):
 
 
 @bp.route("/login")
+@limiter.limit("40 per minute")
 def login():
     if session.get("logged_in"):
         return redirect(url_for("index"))
@@ -117,6 +139,7 @@ def login():
 
 
 @bp.route("/login/google")
+@limiter.limit("40 per minute")
 def login_google():
     if not current_app.config["GOOGLE_LOGIN_ENABLED"]:
         abort(404)
@@ -125,6 +148,7 @@ def login_google():
 
 
 @bp.route("/login/google/callback")
+@limiter.limit("40 per minute")
 def google_callback():
     if not current_app.config["GOOGLE_LOGIN_ENABLED"]:
         abort(404)
@@ -146,6 +170,7 @@ def google_callback():
 
 
 @bp.route("/login/microsoft")
+@limiter.limit("40 per minute")
 def login_microsoft():
     if not current_app.config["MICROSOFT_LOGIN_ENABLED"]:
         abort(404)
@@ -154,6 +179,7 @@ def login_microsoft():
 
 
 @bp.route("/login/microsoft/callback")
+@limiter.limit("40 per minute")
 def microsoft_callback():
     if not current_app.config["MICROSOFT_LOGIN_ENABLED"]:
         abort(404)

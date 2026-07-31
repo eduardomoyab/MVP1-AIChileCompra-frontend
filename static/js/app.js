@@ -1023,7 +1023,7 @@ function renderCMPriceEstimate(data) {
             <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-200 opacity-75"></span>
             <span class="relative inline-flex rounded-full h-2 w-2 bg-emerald-200"></span>
           </span>
-          <span class="text-[12px] lg:text-[13px] font-semibold text-white">Convenio Marco · Catálogo vigente</span>
+          <span class="text-[12px] lg:text-[13px] font-semibold text-white">Convenio Marco · Catálogo</span>
         </div>
         <span class="text-[11px] lg:text-[12px] text-emerald-100 opacity-90">${data.count.toLocaleString('es-CL')} productos</span>
       </div>
@@ -1447,7 +1447,7 @@ function downloadFichaPDF() {
     cmCard = `
       <div style="flex:1;border:1.5px solid #a7e5c8;border-radius:10px;overflow:hidden;">
         <div style="background:#0f7a4f;padding:20px 22px;">
-          <div style="font-size:9px;letter-spacing:.09em;text-transform:uppercase;color:rgba(255,255,255,.7);margin-bottom:8px;">Convenio Marco · Catálogo vigente</div>
+          <div style="font-size:9px;letter-spacing:.09em;text-transform:uppercase;color:rgba(255,255,255,.7);margin-bottom:8px;">Convenio Marco · Catálogo</div>
           <div style="font-size:32px;font-weight:900;color:#fff;line-height:1;">${fmt(cm.median ?? cm.min)}</div>
           <div style="font-size:10px;color:rgba(255,255,255,.75);margin-top:5px;">precio mediano</div>
         </div>

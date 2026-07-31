@@ -61,6 +61,7 @@
         {% endif %}
       {% endwith %}
 
+      <div class="space-y-3">
       {% if google_login_enabled %}
       <a href="{{ url_for('auth.login_google') }}"
          class="w-full flex items-center justify-center gap-2.5 bg-white border border-slate-300 hover:bg-slate-50 hover:border-slate-400 text-slate-700 text-sm font-medium rounded-lg py-2.5 shadow-sm">
@@ -72,11 +73,27 @@
         </svg>
         Iniciar sesión con Google
       </a>
-      {% else %}
+      {% endif %}
+
+      {% if microsoft_login_enabled %}
+      <a href="{{ url_for('auth.login_microsoft') }}"
+         class="w-full flex items-center justify-center gap-2.5 bg-white border border-slate-300 hover:bg-slate-50 hover:border-slate-400 text-slate-700 text-sm font-medium rounded-lg py-2.5 shadow-sm">
+        <svg class="w-4 h-4" viewBox="0 0 21 21">
+          <rect x="1" y="1" width="9" height="9" fill="#f25022"/>
+          <rect x="11" y="1" width="9" height="9" fill="#7fba00"/>
+          <rect x="1" y="11" width="9" height="9" fill="#00a4ef"/>
+          <rect x="11" y="11" width="9" height="9" fill="#ffb900"/>
+        </svg>
+        Iniciar sesión con Microsoft
+      </a>
+      {% endif %}
+
+      {% if not google_login_enabled and not microsoft_login_enabled %}
       <div class="rounded-lg px-4 py-3 text-sm bg-amber-50 text-amber-700 border border-amber-200 text-center">
-        El login con Google no está configurado en este entorno.
+        El login no está configurado en este entorno.
       </div>
       {% endif %}
+      </div>
 
       <p class="text-xs text-slate-400 mt-6 text-center">
         Solo cuentas autorizadas pueden acceder. Si necesitas acceso, contacta al administrador.

@@ -34,11 +34,19 @@ app.config["GOOGLE_CLIENT_ID"] = os.getenv("GOOGLE_CLIENT_ID", "")
 app.config["GOOGLE_CLIENT_SECRET"] = os.getenv("GOOGLE_CLIENT_SECRET", "")
 app.config["GOOGLE_LOGIN_ENABLED"] = bool(app.config["GOOGLE_CLIENT_ID"] and app.config["GOOGLE_CLIENT_SECRET"])
 
+app.config["MICROSOFT_CLIENT_ID"] = os.getenv("MICROSOFT_CLIENT_ID", "")
+app.config["MICROSOFT_CLIENT_SECRET"] = os.getenv("MICROSOFT_CLIENT_SECRET", "")
+app.config["MICROSOFT_LOGIN_ENABLED"] = bool(app.config["MICROSOFT_CLIENT_ID"] and app.config["MICROSOFT_CLIENT_SECRET"])
+
 auth.init_oauth(app)
 app.register_blueprint(auth.bp)
 
-# Endpoints alcanzables sin sesión: login, su callback, y estáticos/logos.
-_PUBLIC_ENDPOINTS = {"auth.login", "auth.login_google", "auth.google_callback", "static", "serve_imagenes"}
+# Endpoints alcanzables sin sesión: login, sus callbacks, y estáticos/logos.
+_PUBLIC_ENDPOINTS = {
+    "auth.login", "auth.login_google", "auth.google_callback",
+    "auth.login_microsoft", "auth.microsoft_callback",
+    "static", "serve_imagenes",
+}
 
 
 @app.before_request

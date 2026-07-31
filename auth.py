@@ -1,5 +1,5 @@
 """
-auth.py — Login con Google para el Asistente Compra Ágil.
+auth.py — Login con Google/Microsoft para el Asistente Compra Ágil.
 
 Acceso gateado por lista blanca de correos, administrada desde el módulo
 "Aplicaciones" de db-admin-panel. MVP1 no mantiene su propia tabla de
@@ -13,6 +13,7 @@ No hay usuario/contraseña de respaldo (a diferencia de db-admin-panel):
 esta app no tiene concepto de admin/roles que lo justifique.
 """
 import os
+import re
 from functools import wraps
 
 import httpx
@@ -21,6 +22,20 @@ from flask import Blueprint, abort, current_app, flash, redirect, render_templat
 
 bp = Blueprint("auth", __name__)
 oauth = OAuth()
+
+# El endpoint "common" de Microsoft (cuentas personales + de organización)
+# devuelve en su discovery doc un issuer con placeholder sin resolver
+# ("https://login.microsoftonline.com/{tenantid}/v2.0"), pero el id_token
+# real trae el tenant concreto (un GUID, o "9188...66dad" para cuentas
+# personales). Authlib valida "iss" contra el issuer del discovery doc por
+# default → siempre falla con "common". Se valida con un patrón en vez de
+# con un valor exacto (la firma JWKS del token sigue siendo la garantía
+# criptográfica real de que lo emitió Microsoft).
+_MS_ISSUER_RE = re.compile(r"^https://login\.microsoftonline\.com/[^/]+/v2\.0$")
+
+
+def _validate_ms_issuer(claims, value):
+    return bool(_MS_ISSUER_RE.match(value or ""))
 
 
 def init_oauth(app):
@@ -31,6 +46,14 @@ def init_oauth(app):
             client_id=app.config["GOOGLE_CLIENT_ID"],
             client_secret=app.config["GOOGLE_CLIENT_SECRET"],
             server_metadata_url="https://accounts.google.com/.well-known/openid-configuration",
+            client_kwargs={"scope": "openid email profile"},
+        )
+    if app.config["MICROSOFT_LOGIN_ENABLED"]:
+        oauth.register(
+            name="microsoft",
+            client_id=app.config["MICROSOFT_CLIENT_ID"],
+            client_secret=app.config["MICROSOFT_CLIENT_SECRET"],
+            server_metadata_url="https://login.microsoftonline.com/common/v2.0/.well-known/openid-configuration",
             client_kwargs={"scope": "openid email profile"},
         )
 
@@ -65,11 +88,32 @@ def login_required(view):
     return wrapped
 
 
+def _no_access(email):
+    flash(
+        f'La cuenta "{email or "desconocida"}" no tiene acceso a esta aplicación. '
+        "Pídele a un administrador que te agregue en el módulo Aplicaciones del panel.",
+        "error",
+    )
+    return redirect(url_for("auth.login"))
+
+
+def _start_session(email):
+    session.clear()
+    session.permanent = True
+    session["logged_in"] = True
+    session["email"] = email
+    return redirect(url_for("index"))
+
+
 @bp.route("/login")
 def login():
     if session.get("logged_in"):
         return redirect(url_for("index"))
-    return render_template("login.html", google_login_enabled=current_app.config["GOOGLE_LOGIN_ENABLED"])
+    return render_template(
+        "login.html",
+        google_login_enabled=current_app.config["GOOGLE_LOGIN_ENABLED"],
+        microsoft_login_enabled=current_app.config["MICROSOFT_LOGIN_ENABLED"],
+    )
 
 
 @bp.route("/login/google")
@@ -96,18 +140,48 @@ def google_callback():
     email_verified = userinfo.get("email_verified", False)
 
     if not (email_verified and email and is_email_allowed(email)):
-        flash(
-            f'La cuenta "{email or "desconocida"}" no tiene acceso a esta aplicación. '
-            "Pídele a un administrador que te agregue en el módulo Aplicaciones del panel.",
-            "error",
+        return _no_access(email)
+
+    return _start_session(email)
+
+
+@bp.route("/login/microsoft")
+def login_microsoft():
+    if not current_app.config["MICROSOFT_LOGIN_ENABLED"]:
+        abort(404)
+    redirect_uri = url_for("auth.microsoft_callback", _external=True)
+    return oauth.microsoft.authorize_redirect(redirect_uri)
+
+
+@bp.route("/login/microsoft/callback")
+def microsoft_callback():
+    if not current_app.config["MICROSOFT_LOGIN_ENABLED"]:
+        abort(404)
+
+    try:
+        token = oauth.microsoft.authorize_access_token(
+            claims_options={"iss": {"essential": True, "validate": _validate_ms_issuer}}
         )
+    except Exception:
+        flash("No se pudo completar el inicio de sesión con Microsoft.", "error")
         return redirect(url_for("auth.login"))
 
-    session.clear()
-    session.permanent = True
-    session["logged_in"] = True
-    session["email"] = email
-    return redirect(url_for("index"))
+    userinfo = token.get("userinfo") or {}
+    # Microsoft no expone "email_verified" en el id_token del endpoint
+    # "common" (confirmado contra su discovery doc) — a diferencia de
+    # Google, acá no hay ese claim para exigir. La firma del token
+    # (validada por Authlib vía JWKS) ya garantiza que el email lo emitió
+    # Microsoft; el control de acceso real sigue siendo la whitelist.
+    email = (userinfo.get("email") or "").strip().lower()
+    if not email:
+        preferred = (userinfo.get("preferred_username") or "").strip().lower()
+        if "@" in preferred:
+            email = preferred
+
+    if not (email and is_email_allowed(email)):
+        return _no_access(email)
+
+    return _start_session(email)
 
 
 @bp.route("/logout")

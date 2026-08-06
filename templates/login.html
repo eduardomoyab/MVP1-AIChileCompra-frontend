@@ -65,11 +65,13 @@
       {% endwith %}
 
       <div class="space-y-3">
+      {% if turnstile_enabled and (google_login_enabled or microsoft_login_enabled) %}
+      <div class="cf-turnstile flex justify-center mb-1" data-sitekey="{{ turnstile_site_key }}" data-callback="onTurnstileSuccess" data-theme="light"></div>
+      {% endif %}
+
       {% if google_login_enabled %}
       <form method="POST" action="{{ url_for('auth.login_google') }}">
-        {% if turnstile_enabled %}
-        <div class="cf-turnstile flex justify-center mb-3" data-sitekey="{{ turnstile_site_key }}"></div>
-        {% endif %}
+        <input type="hidden" name="cf-turnstile-response" id="cf-token-google">
         <button type="submit"
            class="w-full flex items-center justify-center gap-2.5 bg-white border border-slate-300 hover:bg-slate-50 hover:border-slate-400 text-slate-700 text-sm font-medium rounded-lg py-2.5 shadow-sm">
           <svg class="w-4 h-4" viewBox="0 0 24 24">
@@ -85,9 +87,7 @@
 
       {% if microsoft_login_enabled %}
       <form method="POST" action="{{ url_for('auth.login_microsoft') }}">
-        {% if turnstile_enabled %}
-        <div class="cf-turnstile flex justify-center mb-3" data-sitekey="{{ turnstile_site_key }}"></div>
-        {% endif %}
+        <input type="hidden" name="cf-turnstile-response" id="cf-token-microsoft">
         <button type="submit"
            class="w-full flex items-center justify-center gap-2.5 bg-white border border-slate-300 hover:bg-slate-50 hover:border-slate-400 text-slate-700 text-sm font-medium rounded-lg py-2.5 shadow-sm">
           <svg class="w-4 h-4" viewBox="0 0 21 21">
@@ -114,5 +114,18 @@
     </div>
   </div>
 
+  {% if turnstile_enabled %}
+  <script>
+    // Un solo widget compartido entre los botones de Google/Microsoft --
+    // copia el mismo token a ambos formularios, así solo se resuelve el
+    // CAPTCHA una vez sin importar cuál elijas después.
+    function onTurnstileSuccess(token) {
+      var g = document.getElementById('cf-token-google');
+      var m = document.getElementById('cf-token-microsoft');
+      if (g) g.value = token;
+      if (m) m.value = token;
+    }
+  </script>
+  {% endif %}
 </body>
 </html>

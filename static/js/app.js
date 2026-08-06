@@ -993,7 +993,17 @@ function renderCMPriceEstimate(data) {
       </div>
     </div>` : '';
 
-  const relaxedWarning = data.processor_relaxed ? `
+  const relaxedWarning = data.processor_relaxed ? (
+    data.processor_match === 'gama' ? `
+    <div class="flex items-start gap-2.5 bg-blue-50 border border-blue-200 rounded-lg px-3 py-2.5 mt-2">
+      <svg class="w-4 h-4 flex-shrink-0 text-blue-500 mt-0.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+        <circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/>
+      </svg>
+      <div>
+        <p class="text-[12px] font-semibold text-blue-700 leading-tight">Procesadores de rendimiento equivalente</p>
+        <p class="text-[11px] text-blue-600 mt-0.5 leading-snug">No hay match exacto de línea, pero se muestran equipos de la misma gama de rendimiento de cualquier marca (Intel, AMD, etc.).</p>
+      </div>
+    </div>` : `
     <div class="flex items-start gap-2.5 bg-amber-50 border border-amber-300 rounded-lg px-3 py-2.5 mt-2">
       <svg class="w-4 h-4 flex-shrink-0 text-amber-500 mt-0.5" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
         <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v4m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/>
@@ -1002,7 +1012,8 @@ function renderCMPriceEstimate(data) {
         <p class="text-[12px] font-semibold text-amber-700 leading-tight">Sin coincidencia exacta de procesador</p>
         <p class="text-[11px] text-amber-600 mt-0.5 leading-snug">Se muestran productos del catálogo con el resto de las características solicitadas (tipo, RAM, almacenamiento).</p>
       </div>
-    </div>` : '';
+    </div>`
+  ) : '';
 
   const unverifiedNote = (data.unverified_attrs && data.unverified_attrs.length) ? `
     <div class="flex items-start gap-2.5 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2.5 mt-2">

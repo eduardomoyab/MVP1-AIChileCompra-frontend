@@ -1,8 +1,9 @@
 import os
+import posixpath
 from datetime import timedelta
 
 import httpx
-from flask import Flask, redirect, render_template, send_from_directory, request, Response, session, stream_with_context, url_for
+from flask import Flask, abort, redirect, render_template, send_from_directory, request, Response, session, stream_with_context, url_for
 from dotenv import load_dotenv
 from flask_limiter.util import get_remote_address
 from werkzeug.middleware.proxy_fix import ProxyFix
@@ -80,11 +81,33 @@ def index():
     )
 
 
+# Solo estos sub-paths del backend son alcanzables a través del proxy --
+# el resto de /api/* del backend (ej. /api/auth/check_access, que solo
+# debe consultar el propio login del frontend, ver auth.py) NO debe quedar
+# expuesto a cualquier usuario ya logueado vía este proxy genérico. El
+# primer segmento del path es lo que se valida (ej. "chat" de
+# "chat/<session_id>").
+_ALLOWED_PROXY_PREFIXES = {
+    "chat", "manual_update", "cm_offers", "offers", "track", "reset", "usage", "dropdowns",
+}
+
+
 @app.route("/api/<path:path>", methods=["POST", "GET"])
 @auth.limiter.limit("60 per minute")  # por persona (sesión) — cada usuario tiene su propio balde
 @auth.limiter.limit("300 per minute", key_func=get_remote_address)  # por IP — red de contención ante algo masivo desde un mismo origen
 def proxy(path):
-    url = f"{API_URL}/api/{path}"
+    # Werkzeug conserva el path tal cual llegó (incluye "..") -- el chequeo
+    # de prefijo solo es una defensa real si se aplica sobre el path YA
+    # normalizado. Si alguien manda "chat/../auth/check_access", el
+    # string crudo empieza con "chat" (pasaría el check ingenuo), pero
+    # httpx normaliza el ".." al armar la URL final y terminaría pegándole
+    # a /api/auth/check_access de verdad. normpath() colapsa eso mismo acá
+    # antes de comparar, y se exige que el resultado sea idéntico al
+    # original -- cualquier "..", "//" o segmento raro se rechaza.
+    normalized = posixpath.normpath("/" + path).lstrip("/")
+    if normalized != path or normalized.split("/", 1)[0] not in _ALLOWED_PROXY_PREFIXES:
+        abort(404)
+    url = f"{API_URL}/api/{normalized}"
     headers = {
         "x-api-key": FRONTEND_API_KEY,
         "x-user-email": session.get("email", ""),

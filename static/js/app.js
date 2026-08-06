@@ -1138,19 +1138,20 @@ function renderCMOffers() {
 
   const cards = _cmOffersData.map(o => {
     const extras = [
-      o.sistema_operativo,
-      o.wifi_generacion ? `Wi-Fi ${o.wifi_generacion}` : null,
-      o.puntaje_passmark_cpu ? `PassMark ${o.puntaje_passmark_cpu}` : null,
-      o.peso_equipo,
-      o.monitor_si_no ? `Monitor: ${o.monitor_si_no}` : null,
+      o.sistema_operativo ? escapeHtml(o.sistema_operativo) : null,
+      o.wifi_generacion ? `Wi-Fi ${escapeHtml(o.wifi_generacion)}` : null,
+      o.puntaje_passmark_cpu ? `PassMark ${escapeHtml(o.puntaje_passmark_cpu)}` : null,
+      o.peso_equipo ? escapeHtml(o.peso_equipo) : null,
+      o.monitor_si_no ? `Monitor: ${escapeHtml(o.monitor_si_no)}` : null,
     ].filter(Boolean).join(' · ');
+    const safeHref = safeUrl(o.url);
 
     return `
     <div class="bg-white border border-slate-200 rounded-lg px-3 py-2.5 mb-1.5">
       <div class="flex items-start justify-between gap-3">
         <div class="min-w-0">
-          <p class="text-[12.5px] font-semibold text-slate-700 truncate">${o.marca ?? ''} ${o.modelo ?? o.nombre ?? ''}</p>
-          <p class="text-[11px] text-slate-400 mt-0.5 truncate">${o.procesador_principal ?? '—'} &nbsp;·&nbsp; ${o.total_ram_gb ?? '—'} &nbsp;·&nbsp; ${o.total_almacenamiento_gb ?? '—'}</p>
+          <p class="text-[12.5px] font-semibold text-slate-700 truncate">${escapeHtml(o.marca ?? '')} ${escapeHtml(o.modelo ?? o.nombre ?? '')}</p>
+          <p class="text-[11px] text-slate-400 mt-0.5 truncate">${escapeHtml(o.procesador_principal ?? '—')} &nbsp;·&nbsp; ${escapeHtml(o.total_ram_gb ?? '—')} &nbsp;·&nbsp; ${escapeHtml(o.total_almacenamiento_gb ?? '—')}</p>
           ${extras ? `<p class="text-[10.5px] text-slate-400 mt-1 truncate">${extras}</p>` : ''}
         </div>
         <div class="text-right flex-shrink-0">
@@ -1158,8 +1159,8 @@ function renderCMOffers() {
           <p class="text-[10.5px] text-slate-400 mt-0.5">${fmtUsd(o.precio_min_usd)}${o.precio_max_usd && o.precio_max_usd !== o.precio_min_usd ? ` – ${fmtUsd(o.precio_max_usd)}` : ''}</p>
         </div>
       </div>
-      ${o.url ? `
-      <a href="${o.url}" target="_blank" rel="noopener" class="mt-2 inline-flex items-center gap-1.5 px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-semibold rounded-md transition-colors">
+      ${safeHref ? `
+      <a href="${escapeHtml(safeHref)}" target="_blank" rel="noopener" class="mt-2 inline-flex items-center gap-1.5 px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-semibold rounded-md transition-colors">
         Ver en Convenio Marco
         <svg class="w-3 h-3" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/>
@@ -1271,7 +1272,7 @@ function _renderOfferCards() {
 
   const _iconExternal = `<svg class="w-3 h-3" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/></svg>`;
   const _iconDoc      = `<svg class="w-3 h-3" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>`;
-  const _btnOk  = (href, icon, label) => `<a href="${href}" target="_blank" rel="noopener" class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-semibold border transition-colors ${icon === _iconDoc ? 'bg-teal-50 text-teal-700 border-teal-200 hover:bg-teal-100 hover:border-teal-400' : 'bg-brand-50 text-brand-700 border-brand-200 hover:bg-brand-100 hover:border-brand-400'}">${icon}${label}</a>`;
+  const _btnOk  = (href, icon, label) => `<a href="${escapeHtml(safeUrl(href))}" target="_blank" rel="noopener" class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-semibold border transition-colors ${icon === _iconDoc ? 'bg-teal-50 text-teal-700 border-teal-200 hover:bg-teal-100 hover:border-teal-400' : 'bg-brand-50 text-brand-700 border-brand-200 hover:bg-brand-100 hover:border-brand-400'}">${icon}${label}</a>`;
   const _btnOff = (icon, label) => `<span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-medium border bg-slate-50 text-slate-400 border-slate-200">${icon}${label}</span>`;
 
   const renderCard = (o, hideProvider = false) => {
@@ -1287,9 +1288,9 @@ function _renderOfferCards() {
       <div class="bg-slate-50 border border-slate-100 rounded-lg px-3 py-2">
         <div class="flex items-start justify-between gap-2">
           <div class="flex-1 min-w-0">
-            ${!hideProvider && o.razon_social ? `<p class="text-[12px] font-semibold text-slate-800 leading-tight mb-0.5">${o.razon_social}</p>` : ''}
-            ${o.descripcion ? `<p class="text-[11px] text-slate-500 leading-snug mb-1">${o.descripcion}</p>` : ''}
-            <p class="text-[10px] text-slate-400">${o.codigo_requerimiento || ''} ${o.fecha_modificacion ? '· ' + o.fecha_modificacion : ''}</p>
+            ${!hideProvider && o.razon_social ? `<p class="text-[12px] font-semibold text-slate-800 leading-tight mb-0.5">${escapeHtml(o.razon_social)}</p>` : ''}
+            ${o.descripcion ? `<p class="text-[11px] text-slate-500 leading-snug mb-1">${escapeHtml(o.descripcion)}</p>` : ''}
+            <p class="text-[10px] text-slate-400">${escapeHtml(o.codigo_requerimiento || '')} ${o.fecha_modificacion ? '· ' + escapeHtml(o.fecha_modificacion) : ''}</p>
           </div>
           <div class="text-right flex-shrink-0">
             <p class="text-[14px] font-semibold text-slate-700">${fmt(o.precio_unitario)}</p>
@@ -1335,7 +1336,7 @@ function _renderOfferCards() {
         <button onclick="toggleOfferGroup(${idx})"
           class="w-full flex items-center gap-2 px-1 py-1.5 rounded-md hover:bg-slate-100 transition-colors cursor-pointer">
           ${expanded ? _chevronDown : _chevronRight}
-          <span class="text-[10px] font-semibold text-slate-600 uppercase tracking-wide truncate text-left">${key}</span>
+          <span class="text-[10px] font-semibold text-slate-600 uppercase tracking-wide truncate text-left">${escapeHtml(key)}</span>
           <span class="text-[10px] text-slate-400 flex-shrink-0 bg-slate-100 px-1.5 py-0.5 rounded-full">${items.length}</span>
           <div class="flex-1 h-px bg-slate-200"></div>
         </button>
@@ -1436,8 +1437,8 @@ function downloadFichaPDF() {
       .filter(a => state.ficha[a]?.value != null)
       .map(a => {
         const v = state.ficha[a].value;
-        const display = v === true ? 'Sí' : v === false ? 'No' : String(v);
-        return `<tr><td class="lbl">${ATTRS[a]?.label ?? a}</td><td class="val">${display}</td></tr>`;
+        const display = v === true ? 'Sí' : v === false ? 'No' : escapeHtml(String(v));
+        return `<tr><td class="lbl">${escapeHtml(ATTRS[a]?.label ?? a)}</td><td class="val">${display}</td></tr>`;
       })
       .join('');
     if (!rows) continue;
@@ -1660,7 +1661,21 @@ function escapeHtml(str) {
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+// Solo deja pasar URLs http/https -- evita que un valor "url" que venga de
+// datos externos (catálogo Convenio Marco, etc.) sea un "javascript:" u
+// otro esquema ejecutable al usarse en un href.
+function safeUrl(url) {
+  if (!url) return '';
+  try {
+    const u = new URL(String(url), window.location.origin);
+    return (u.protocol === 'http:' || u.protocol === 'https:') ? u.href : '';
+  } catch {
+    return '';
+  }
 }
 
 function autoResizeTextarea(el) {

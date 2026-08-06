@@ -54,9 +54,36 @@ limiter = Limiter(
 # criptográfica real de que lo emitió Microsoft).
 _MS_ISSUER_RE = re.compile(r"^https://login\.microsoftonline\.com/[^/]+/v2\.0$")
 
+# Tenant fijo que Microsoft usa para TODAS las cuentas personales
+# (outlook.com/hotmail.com/live.com) -- es el mismo GUID para cualquier
+# cuenta personal, documentado por Microsoft.
+_MS_CONSUMER_TENANT_ID = "9188040d-6c67-4c5b-b112-36a304b66dad"
+
+
+def _ms_allowed_tenant_ids() -> set:
+    # Vulnerabilidad "nOAuth": en un tenant de organización (Azure AD/Entra
+    # ID) el atributo "mail" de un usuario lo puede fijar el admin de ESE
+    # tenant a cualquier string, sin verificar que sea dueño de ese dominio
+    # -- cualquiera puede crearse un tenant gratis y ponerle a un usuario
+    # el correo de alguien más para hacerse pasar por esa identidad acá
+    # (el id_token firma válido, pero el claim "email" no es confiable por
+    # sí solo). Las cuentas personales no tienen este problema (su correo
+    # sí está verificado por Microsoft al crearlas), por eso el tenant
+    # consumer siempre se permite. Tenants de organización específicos
+    # (ej. una universidad) deben agregarse explícitamente acá -- se
+    # rechaza cualquier tenant no declarado, en vez de confiar en "common"
+    # a ciegas.
+    extra = os.getenv("MICROSOFT_ALLOWED_TENANT_IDS", "")
+    ids = {t.strip().lower() for t in extra.split(",") if t.strip()}
+    ids.add(_MS_CONSUMER_TENANT_ID)
+    return ids
+
 
 def _validate_ms_issuer(claims, value):
-    return bool(_MS_ISSUER_RE.match(value or ""))
+    if not _MS_ISSUER_RE.match(value or ""):
+        return False
+    tenant_id = str(claims.get("tid") or "").strip().lower()
+    return bool(tenant_id) and tenant_id in _ms_allowed_tenant_ids()
 
 
 def init_oauth(app):
@@ -235,9 +262,10 @@ def microsoft_callback():
     userinfo = token.get("userinfo") or {}
     # Microsoft no expone "email_verified" en el id_token del endpoint
     # "common" (confirmado contra su discovery doc) — a diferencia de
-    # Google, acá no hay ese claim para exigir. La firma del token
-    # (validada por Authlib vía JWKS) ya garantiza que el email lo emitió
-    # Microsoft; el control de acceso real sigue siendo la whitelist.
+    # Google. Por eso _validate_ms_issuer (arriba) ya restringió el tenant
+    # emisor al consumer tenant o a uno explícitamente confiable: en un
+    # tenant de organización ajeno, "mail" no está verificado y cualquiera
+    # podría fijarlo a un correo de la whitelist para suplantar identidad.
     email = (userinfo.get("email") or "").strip().lower()
     if not email:
         preferred = (userinfo.get("preferred_username") or "").strip().lower()

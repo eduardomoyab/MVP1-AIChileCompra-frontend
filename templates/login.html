@@ -9,6 +9,9 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,300;0,400;0,500;0,600;0,700;1,400&display=swap" rel="stylesheet">
 
+  {% if turnstile_enabled %}
+  <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
+  {% endif %}
   <script src="https://cdn.tailwindcss.com"></script>
   <script>
     tailwind.config = {
@@ -63,29 +66,39 @@
 
       <div class="space-y-3">
       {% if google_login_enabled %}
-      <a href="{{ url_for('auth.login_google') }}"
-         class="w-full flex items-center justify-center gap-2.5 bg-white border border-slate-300 hover:bg-slate-50 hover:border-slate-400 text-slate-700 text-sm font-medium rounded-lg py-2.5 shadow-sm">
-        <svg class="w-4 h-4" viewBox="0 0 24 24">
-          <path fill="#4285F4" d="M23.52 12.27c0-.85-.08-1.67-.22-2.45H12v4.64h6.47a5.54 5.54 0 01-2.4 3.64v3h3.88c2.27-2.09 3.57-5.17 3.57-8.83z"/>
-          <path fill="#34A853" d="M12 24c3.24 0 5.95-1.08 7.93-2.9l-3.88-3c-1.08.72-2.45 1.15-4.05 1.15-3.11 0-5.75-2.1-6.69-4.93H1.3v3.1A12 12 0 0012 24z"/>
-          <path fill="#FBBC05" d="M5.31 14.32a7.2 7.2 0 010-4.64v-3.1H1.3a12 12 0 000 10.84l4.01-3.1z"/>
-          <path fill="#EA4335" d="M12 4.75c1.76 0 3.34.6 4.58 1.79l3.44-3.44C17.94 1.19 15.24 0 12 0A12 12 0 001.3 6.58l4.01 3.1C6.25 6.85 8.89 4.75 12 4.75z"/>
-        </svg>
-        Iniciar sesión con Google
-      </a>
+      <form method="POST" action="{{ url_for('auth.login_google') }}">
+        {% if turnstile_enabled %}
+        <div class="cf-turnstile flex justify-center mb-3" data-sitekey="{{ turnstile_site_key }}"></div>
+        {% endif %}
+        <button type="submit"
+           class="w-full flex items-center justify-center gap-2.5 bg-white border border-slate-300 hover:bg-slate-50 hover:border-slate-400 text-slate-700 text-sm font-medium rounded-lg py-2.5 shadow-sm">
+          <svg class="w-4 h-4" viewBox="0 0 24 24">
+            <path fill="#4285F4" d="M23.52 12.27c0-.85-.08-1.67-.22-2.45H12v4.64h6.47a5.54 5.54 0 01-2.4 3.64v3h3.88c2.27-2.09 3.57-5.17 3.57-8.83z"/>
+            <path fill="#34A853" d="M12 24c3.24 0 5.95-1.08 7.93-2.9l-3.88-3c-1.08.72-2.45 1.15-4.05 1.15-3.11 0-5.75-2.1-6.69-4.93H1.3v3.1A12 12 0 0012 24z"/>
+            <path fill="#FBBC05" d="M5.31 14.32a7.2 7.2 0 010-4.64v-3.1H1.3a12 12 0 000 10.84l4.01-3.1z"/>
+            <path fill="#EA4335" d="M12 4.75c1.76 0 3.34.6 4.58 1.79l3.44-3.44C17.94 1.19 15.24 0 12 0A12 12 0 001.3 6.58l4.01 3.1C6.25 6.85 8.89 4.75 12 4.75z"/>
+          </svg>
+          Iniciar sesión con Google
+        </button>
+      </form>
       {% endif %}
 
       {% if microsoft_login_enabled %}
-      <a href="{{ url_for('auth.login_microsoft') }}"
-         class="w-full flex items-center justify-center gap-2.5 bg-white border border-slate-300 hover:bg-slate-50 hover:border-slate-400 text-slate-700 text-sm font-medium rounded-lg py-2.5 shadow-sm">
-        <svg class="w-4 h-4" viewBox="0 0 21 21">
-          <rect x="1" y="1" width="9" height="9" fill="#f25022"/>
-          <rect x="11" y="1" width="9" height="9" fill="#7fba00"/>
-          <rect x="1" y="11" width="9" height="9" fill="#00a4ef"/>
-          <rect x="11" y="11" width="9" height="9" fill="#ffb900"/>
-        </svg>
-        Iniciar sesión con Microsoft
-      </a>
+      <form method="POST" action="{{ url_for('auth.login_microsoft') }}">
+        {% if turnstile_enabled %}
+        <div class="cf-turnstile flex justify-center mb-3" data-sitekey="{{ turnstile_site_key }}"></div>
+        {% endif %}
+        <button type="submit"
+           class="w-full flex items-center justify-center gap-2.5 bg-white border border-slate-300 hover:bg-slate-50 hover:border-slate-400 text-slate-700 text-sm font-medium rounded-lg py-2.5 shadow-sm">
+          <svg class="w-4 h-4" viewBox="0 0 21 21">
+            <rect x="1" y="1" width="9" height="9" fill="#f25022"/>
+            <rect x="11" y="1" width="9" height="9" fill="#7fba00"/>
+            <rect x="1" y="11" width="9" height="9" fill="#00a4ef"/>
+            <rect x="11" y="11" width="9" height="9" fill="#ffb900"/>
+          </svg>
+          Iniciar sesión con Microsoft
+        </button>
+      </form>
       {% endif %}
 
       {% if not google_login_enabled and not microsoft_login_enabled %}

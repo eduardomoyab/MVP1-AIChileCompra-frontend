@@ -39,6 +39,9 @@ app.config["MICROSOFT_CLIENT_ID"] = os.getenv("MICROSOFT_CLIENT_ID", "")
 app.config["MICROSOFT_CLIENT_SECRET"] = os.getenv("MICROSOFT_CLIENT_SECRET", "")
 app.config["MICROSOFT_LOGIN_ENABLED"] = bool(app.config["MICROSOFT_CLIENT_ID"] and app.config["MICROSOFT_CLIENT_SECRET"])
 
+app.config["TURNSTILE_SITE_KEY"] = os.getenv("TURNSTILE_SITE_KEY", "")
+app.config["TURNSTILE_SECRET_KEY"] = os.getenv("TURNSTILE_SECRET_KEY", "")
+
 auth.init_oauth(app)
 auth.limiter.init_app(app)
 app.register_blueprint(auth.bp)

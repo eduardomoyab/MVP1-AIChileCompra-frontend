@@ -18,7 +18,7 @@ from functools import wraps
 
 import httpx
 from authlib.integrations.flask_client import OAuth
-from flask import Blueprint, abort, current_app, flash, redirect, render_template, session, url_for
+from flask import Blueprint, abort, current_app, flash, redirect, render_template, request, session, url_for
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 
@@ -79,6 +79,33 @@ def init_oauth(app):
         )
 
 
+_TURNSTILE_VERIFY_URL = "https://challenges.cloudflare.com/turnstile/v0/siteverify"
+
+
+def _verify_turnstile(token: str, remote_ip: str = None) -> bool:
+    """Valida el token del widget Cloudflare Turnstile contra su API antes
+    de dejar arrancar un login -- filtra bots/scripts que peguen directo a
+    /login/google o /login/microsoft sin pasar por la pantalla real. Si no
+    hay TURNSTILE_SECRET_KEY configurada (ej. desarrollo local), no bloquea
+    -- mismo patrón que GOOGLE_LOGIN_ENABLED/MICROSOFT_LOGIN_ENABLED."""
+    secret = current_app.config.get("TURNSTILE_SECRET_KEY")
+    if not secret:
+        return True
+    if not token:
+        return False
+    try:
+        resp = httpx.post(
+            _TURNSTILE_VERIFY_URL,
+            data={"secret": secret, "response": token, "remoteip": remote_ip or ""},
+            timeout=10,
+        )
+        resp.raise_for_status()
+        return bool(resp.json().get("success"))
+    except Exception:
+        current_app.logger.exception("Error verificando Turnstile")
+        return False
+
+
 def is_email_allowed(email: str) -> bool:
     """Le pregunta al backend (GET /api/auth/check_access) en vez de tocar
     Postgres directo — el frontend no tiene ni debe tener credenciales de
@@ -137,14 +164,20 @@ def login():
         "login.html",
         google_login_enabled=current_app.config["GOOGLE_LOGIN_ENABLED"],
         microsoft_login_enabled=current_app.config["MICROSOFT_LOGIN_ENABLED"],
+        turnstile_enabled=bool(current_app.config.get("TURNSTILE_SITE_KEY")),
+        turnstile_site_key=current_app.config.get("TURNSTILE_SITE_KEY", ""),
     )
 
 
-@bp.route("/login/google")
+@bp.route("/login/google", methods=["POST"])
 @limiter.limit("40 per minute")
 def login_google():
     if not current_app.config["GOOGLE_LOGIN_ENABLED"]:
         abort(404)
+    token = request.form.get("cf-turnstile-response", "")
+    if not _verify_turnstile(token, get_remote_address()):
+        flash("Verificación de seguridad fallida. Intenta de nuevo.", "error")
+        return redirect(url_for("auth.login"))
     redirect_uri = url_for("auth.google_callback", _external=True)
     return oauth.google.authorize_redirect(redirect_uri)
 
@@ -172,11 +205,15 @@ def google_callback():
     return _start_session(email, name, "google")
 
 
-@bp.route("/login/microsoft")
+@bp.route("/login/microsoft", methods=["POST"])
 @limiter.limit("40 per minute")
 def login_microsoft():
     if not current_app.config["MICROSOFT_LOGIN_ENABLED"]:
         abort(404)
+    token = request.form.get("cf-turnstile-response", "")
+    if not _verify_turnstile(token, get_remote_address()):
+        flash("Verificación de seguridad fallida. Intenta de nuevo.", "error")
+        return redirect(url_for("auth.login"))
     redirect_uri = url_for("auth.microsoft_callback", _external=True)
     return oauth.microsoft.authorize_redirect(redirect_uri)
 

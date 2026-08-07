@@ -52,6 +52,12 @@ function loadingHtml() {
     </div>`;
 }
 
+function formatCLP(n) {
+  return Number.isFinite(n)
+    ? new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(n)
+    : null;
+}
+
 function renderCard(m) {
   const metaParts = [
     m.laboratorio ? escapeHtml(m.laboratorio) : null,
@@ -64,6 +70,20 @@ function renderCard(m) {
     ? `${escapeHtml(m.cantidad)} ${escapeHtml(m.unidad_cantidad)}`
     : null;
 
+  // Rango de precio (mediana + p25-p75) en vez de un solo número -- la
+  // tabla es historial de compras reales y el precio varía según el
+  // tamaño del lote cotizado en cada orden, así que un rango representa
+  // mejor "qué se ha pagado" que un promedio o mínimo aislado.
+  const precioHtml = (m.precio_mediana != null)
+    ? `<div class="mt-2 flex items-baseline gap-1.5">
+         <span class="text-[14px] font-bold text-emerald-700">${formatCLP(m.precio_mediana)}</span>
+         <span class="text-[10.5px] text-slate-400">c/u IVA incl. · mediana</span>
+       </div>
+       ${m.precio_p25 != null && m.precio_p75 != null && (m.precio_p25 !== m.precio_p75) ? `
+         <p class="text-[10.5px] text-slate-400">Rango habitual: ${formatCLP(m.precio_p25)} – ${formatCLP(m.precio_p75)}</p>
+       ` : ''}`
+    : '';
+
   return `
     <div class="bg-white border border-slate-200 rounded-xl px-4 py-3.5 hover:border-brand-300 hover:shadow-sm transition-all">
       <div class="flex items-start justify-between gap-3">
@@ -74,6 +94,7 @@ function renderCard(m) {
       </div>
       ${metaParts.length ? `<p class="text-[11.5px] text-slate-500 mt-1.5 leading-relaxed">${metaParts.join(' &nbsp;·&nbsp; ')}</p>` : ''}
       ${cantidad ? `<p class="text-[11px] text-slate-400 mt-1">Presentación: ${cantidad}</p>` : ''}
+      ${precioHtml}
     </div>`;
 }
 

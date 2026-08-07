@@ -48,8 +48,8 @@ const state = {
 // Valores de dropdowns cargados desde /api/dropdowns al iniciar
 const dropdowns = {};
 
-// ── HTTP helpers ─────────────────────────────────────────────────
-const _headers = () => ({ 'Content-Type': 'application/json' });
+// _headers(), apiFetch() y showSessionExpiredModal() viven en shell.js
+// (compartido con medicamentos.js y la página de categorías).
 
 // ── SSE helpers ──────────────────────────────────────────────────
 async function readSSEStream(response) {
@@ -317,11 +317,17 @@ async function sendMessage() {
   if (state.ficha['tipo_equipo']?.value != null) showPriceLoading();
 
   try {
-    const res = await fetch(`/api/chat/${SESSION_ID}`, {
+    const res = await apiFetch(`/api/chat/${SESSION_ID}`, {
       method: 'POST',
       headers: _headers(),
       body: JSON.stringify({ content }),
     });
+    if (!res) {
+      hideTyping();
+      state.streamingBubble = null;
+      hidePriceLoading(state.ficha['tipo_equipo']?.value == null);
+      return;
+    }
     await readSSEStream(res);
   } catch (err) {
     hideTyping();
@@ -758,12 +764,12 @@ function commitEdit(attr, value) {
     showPriceLoading();
   }
 
-  fetch(`/api/manual_update/${SESSION_ID}`, {
+  apiFetch(`/api/manual_update/${SESSION_ID}`, {
     method: 'POST',
     headers: _headers(),
     body: JSON.stringify({ attribute: attr, value }),
   })
-    .then(res => readSSEStream(res))
+    .then(res => { if (res) return readSSEStream(res); hidePriceLoading(true); })
     .catch(err => {
       console.error('Error en manual_update:', err);
       hidePriceLoading(true);
@@ -1108,7 +1114,8 @@ function toggleCMOffers() {
 async function fetchCMOffers() {
   const list = document.getElementById('cm-offers-list');
   try {
-    const resp = await fetch(`/api/cm_offers/${SESSION_ID}`, { headers: _headers() });
+    const resp = await apiFetch(`/api/cm_offers/${SESSION_ID}`, { headers: _headers() });
+    if (!resp) return;
     if (!resp.ok) throw new Error('offers fetch failed');
     const { offers } = await resp.json();
     _cmOffersData = offers || [];
@@ -1193,7 +1200,8 @@ async function fetchOffers() {
   const list = document.getElementById('offers-list');
   if (!list) return;
   try {
-    const resp = await fetch(`/api/offers/${SESSION_ID}`, { headers: _headers() });
+    const resp = await apiFetch(`/api/offers/${SESSION_ID}`, { headers: _headers() });
+    if (!resp) return;
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
     const { offers } = await resp.json();
     _offersData = offers || [];
@@ -1619,7 +1627,7 @@ function resetUI() {
 
 function resetSession() {
   resetUI();
-  fetch(`/api/reset/${SESSION_ID}`, { method: 'POST', headers: _headers() }).catch(() => {});
+  apiFetch(`/api/reset/${SESSION_ID}`, { method: 'POST', headers: _headers() }).catch(() => {});
 }
 
 // ── Tabs móvil ────────────────────────────────────────────────────
@@ -1656,27 +1664,7 @@ function toggleSection(id) {
 }
 
 // ── Utils ─────────────────────────────────────────────────────────
-function escapeHtml(str) {
-  return String(str)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
-}
-
-// Solo deja pasar URLs http/https -- evita que un valor "url" que venga de
-// datos externos (catálogo Convenio Marco, etc.) sea un "javascript:" u
-// otro esquema ejecutable al usarse en un href.
-function safeUrl(url) {
-  if (!url) return '';
-  try {
-    const u = new URL(String(url), window.location.origin);
-    return (u.protocol === 'http:' || u.protocol === 'https:') ? u.href : '';
-  } catch {
-    return '';
-  }
-}
+// escapeHtml() y safeUrl() viven en shell.js (compartidas con medicamentos.js).
 
 function autoResizeTextarea(el) {
   el.style.height = 'auto';
@@ -1688,70 +1676,7 @@ function useSuggestion(text) {
   document.getElementById('chat-input-field').focus();
 }
 
-// ── Cuenta: panel + uso diario ──────────────────────────────────────
-function toggleAccountPanel() {
-  const panel = document.getElementById('account-panel');
-  if (!panel) return;
-  panel.classList.toggle('hidden');
-}
-
-document.addEventListener('click', (e) => {
-  const panel = document.getElementById('account-panel');
-  const btn = document.getElementById('account-btn');
-  if (!panel || panel.classList.contains('hidden')) return;
-  if (panel.contains(e.target) || (btn && btn.contains(e.target))) return;
-  panel.classList.add('hidden');
-});
-
-function formatResetTime(resetsAtIso) {
-  if (!resetsAtIso) return 'a medianoche (hora Chile)';
-  const resetsAt = new Date(resetsAtIso);
-  const diffMs = resetsAt - new Date();
-  if (diffMs <= 0) return 'en cualquier momento';
-  const h = Math.floor(diffMs / 3600000);
-  const m = Math.round((diffMs % 3600000) / 60000);
-  const parts = [];
-  if (h > 0) parts.push(`${h}h`);
-  parts.push(`${m}min`);
-  return `en ${parts.join(' ')}`;
-}
-
-function renderUsage(usage) {
-  if (!usage) return;
-  const bar = document.getElementById('usage-bar');
-  const text = document.getElementById('usage-text');
-  const reset = document.getElementById('usage-reset');
-  if (!bar || !text || !reset) return;
-
-  // unlimited = esta persona tiene acceso ilimitado (configurado en
-  // "Aplicaciones" en db-admin-panel) — no hay porcentaje que mostrar. El
-  // backend ya no manda números de tokens crudos en absoluto (ver
-  // usage_service.to_public en el backend) — solo % / bloqueado / reset.
-  if (usage.unlimited) {
-    bar.style.width = '100%';
-    bar.className = 'h-full transition-all duration-300 bg-brand-400';
-    text.textContent = 'Sin límite';
-    reset.textContent = 'Acceso ilimitado';
-    return;
-  }
-
-  const pct = Math.min(usage.percent_used ?? 0, 100);
-  bar.style.width = `${pct}%`;
-  bar.className = 'h-full transition-all duration-300 ' + (
-    pct >= 100 ? 'bg-red-500' : pct >= 80 ? 'bg-amber-500' : 'bg-emerald-500'
-  );
-  text.textContent = `${Math.round(pct)}% usado`;
-  reset.textContent = usage.blocked
-    ? `Se reinicia ${formatResetTime(usage.resets_at)}`
-    : `Se reinicia a las 00:00 (hora Chile)`;
-}
-
-function fetchUsage() {
-  fetch(`/api/usage`, { headers: _headers() })
-    .then(r => r.ok ? r.json() : null)
-    .then(data => { if (data) renderUsage(data); })
-    .catch(() => {});
-}
+// toggleAccountPanel(), fetchUsage() y renderUsage() viven en shell.js.
 
 // ── Init ──────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
@@ -1763,11 +1688,10 @@ document.addEventListener('DOMContentLoaded', () => {
   inputField.addEventListener('input', () => autoResizeTextarea(inputField));
 
   updateProgress();
-  fetchUsage();
 
   // Cargar valores de dropdowns para autocompletado
-  fetch('/api/dropdowns')
-    .then(r => r.ok ? r.json() : {})
+  apiFetch('/api/dropdowns')
+    .then(r => r && r.ok ? r.json() : {})
     .then(data => { Object.assign(dropdowns, data); })
     .catch(() => {});
 });

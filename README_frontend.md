@@ -1,6 +1,6 @@
-# Frontend — Asistente IA Compra Ágil
+# Frontend — Asistente IA Compras Públicas
 
-Servidor web construido en **Flask** que sirve la interfaz conversacional y actúa como **proxy seguro** entre el navegador y el backend FastAPI. El navegador nunca ve la URL ni la API key del backend.
+Servidor web construido en **Flask** que sirve la interfaz (organizada por categorías: Computadores, Medicamentos, y las que se agreguen) y actúa como **proxy seguro** entre el navegador y el backend FastAPI. El navegador nunca ve la URL ni la API key del backend.
 
 > Repositorio: `github.com/eduardomoyab/MVP1-AIChileCompra-frontend` · versión `v1.0.0`
 
@@ -11,7 +11,7 @@ Servidor web construido en **Flask** que sirve la interfaz conversacional y act�
 | Capa | Tecnología |
 |---|---|
 | Servidor web | Flask 3.0+ |
-| Plantillas | Jinja2 (`templates/index.html`) |
+| Plantillas | Jinja2 — una por categoría (`computadores.html`, `medicamentos.html`) + partials compartidos (`_header.html`, `_session_modal.html`) |
 | Estilos | Tailwind CSS (CDN) + CSS custom |
 | Fuente | Inter (Google Fonts CDN) |
 | Interactividad | JavaScript Vanilla |
@@ -49,17 +49,29 @@ El proxy inyecta `x-api-key` server-side en cada petición, manteniendo la clave
 
 ## Estructura del proyecto
 
+La app está organizada por **categorías** (Computadores, Medicamentos, las que se agreguen después), cada una con su propio template + JS, más una pantalla de selección de categoría como home post-login.
+
 ```
 MVP1-AIChileCompra-frontend/
-├── app.py                  # Flask app: rutas, proxy, configuración
+├── app.py                     # Flask app: rutas, proxy, configuración
+├── auth.py                    # Login (Google/Microsoft), Turnstile, rate limiting
 ├── requirements.txt
 ├── .env.example
 ├── templates/
-│   └── index.html          # UI completa (Jinja2) — un solo template
+│   ├── categorias.html        # Home post-login: selector de categoría
+│   ├── computadores.html      # UI del asistente conversacional de Computadores
+│   ├── medicamentos.html      # UI del buscador de Medicamentos
+│   ├── login.html
+│   ├── _header.html           # Partial: header + logos + panel de cuenta (compartido)
+│   └── _session_modal.html    # Partial: aviso de sesión vencida (compartido)
 ├── static/
-│   ├── js/app.js           # Lógica del cliente (Vanilla JS)
-│   └── css/style.css       # Animaciones y estilos complementarios
-└── imagenes/               # Logos institucionales (ChileCompra, OCP, UCH, UCBerkeley)
+│   ├── js/
+│   │   ├── shell.js           # Compartido entre TODAS las categorías: apiFetch,
+│   │   │                      #   panel de cuenta, uso diario, sesión vencida
+│   │   ├── app.js             # Lógica específica de Computadores (chat, ficha, SSE)
+│   │   └── medicamentos.js    # Lógica específica del buscador de Medicamentos
+│   └── css/style.css          # Animaciones y estilos complementarios
+└── imagenes/                  # Logos institucionales (ChileCompra, OCP, UCH, UCBerkeley)
 ```
 
 ---
@@ -68,14 +80,17 @@ MVP1-AIChileCompra-frontend/
 
 | Ruta | Método | Descripción |
 |---|---|---|
-| `/` | GET | Sirve `index.html` |
-| `/api/<path>` | GET / POST | Proxy transparente al backend (inyecta `x-api-key`, re-transmite SSE) |
+| `/` | GET | Selector de categoría (home post-login) |
+| `/computadores` | GET | Asistente conversacional de Computadores |
+| `/medicamentos` | GET | Buscador de Medicamentos |
+| `/api/<path>` | GET / POST | Proxy transparente al backend (inyecta `x-api-key`, reenvía query string, re-transmite SSE) — solo rutas en el allowlist `_ALLOWED_PROXY_PREFIXES` |
 | `/imagenes/<filename>` | GET | Sirve logos institucionales |
 | `/static/...` | GET | CSS y JavaScript estáticos |
+| `/login`, `/logout`, `/login/google`, `/login/microsoft` | GET / POST | Autenticación (ver `auth.py`) |
 
 ---
 
-## Interfaz de usuario
+## Interfaz de usuario — Computadores
 
 ```mermaid
 flowchart TD
@@ -112,7 +127,13 @@ En **móvil** la interfaz usa tabs (Chat | Ficha) con badge rojo animado cuando 
 
 ---
 
-## Badges de origen de atributos
+## Interfaz de usuario — Medicamentos
+
+A diferencia de Computadores, acá no hay chat ni recomendación — es un **buscador**: un campo de texto (con debounce, busca mientras escribes) más dos filtros opcionales (laboratorio, forma farmacéutica). Los resultados vienen agrupados por producto (no fila por fila del historial de compras) con un contador "comprado N veces". Ver `services/medicamento_service.py` en el backend para el detalle de cómo se arma el match.
+
+---
+
+## Badges de origen de atributos (solo Computadores)
 
 Cada campo de la ficha muestra de dónde provino su valor:
 
@@ -124,7 +145,7 @@ Cada campo de la ficha muestra de dónde provino su valor:
 
 ---
 
-## Editor manual inline
+## Editor manual inline (solo Computadores)
 
 Al hacer clic en el ícono de edición de cualquier campo editable, se despliega el control apropiado según el tipo del atributo:
 

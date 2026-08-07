@@ -1,0 +1,76 @@
+  <!-- ══ Header ════════════════════════════════════════════════════ -->
+  <header class="relative z-20 h-[54px] lg:h-[68px] bg-white border-b border-slate-200 flex items-center justify-between px-3 lg:px-8 flex-shrink-0 shadow-sm">
+    <!-- Logos izquierda -->
+    <div class="flex items-center gap-2 lg:gap-5">
+      <img src="/imagenes/logo-chilecompra.png" class="h-7 lg:h-10 w-auto max-w-[68px] lg:max-w-none object-contain" alt="ChileCompra" />
+      <div class="hidden sm:block w-px h-6 bg-slate-200 flex-shrink-0"></div>
+      <img src="/imagenes/logo-OCP.png" class="h-5 lg:h-8 w-auto max-w-[48px] lg:max-w-none object-contain" alt="OCP" />
+    </div>
+    <!-- Título central -->
+    <a href="{{ url_for('index') }}" class="flex flex-col items-center select-none gap-0.5">
+      <div class="flex items-center gap-1.5">
+        <svg class="hidden lg:block w-4 h-4 text-brand-600 flex-shrink-0" viewBox="0 0 24 24" fill="currentColor">
+          <path d="M12 2.5l1.8 5.6 5.7 1.4-5.7 1.4-1.8 5.6-1.8-5.6-5.7-1.4 5.7-1.4z"/>
+        </svg>
+        <p class="text-[11px] lg:text-[14px] font-semibold text-brand-700 tracking-tight whitespace-nowrap">Asistente IA · Compras Públicas</p>
+      </div>
+      <p class="hidden lg:block text-[11px] text-slate-400 font-medium tracking-wide">{{ shell_subtitle or 'Especificación Técnica Inteligente' }}</p>
+    </a>
+    <!-- Logos derecha + cuenta -->
+    <div class="flex items-center gap-2 lg:gap-4">
+      <img src="/imagenes/logo-UCBerkeley.png" class="h-5 lg:h-8 w-auto max-w-[48px] lg:max-w-none object-contain" alt="UC Berkeley" />
+      <div class="hidden sm:block w-px h-6 bg-slate-200 flex-shrink-0"></div>
+      <img src="/imagenes/logo-uch2.png" class="h-6 lg:h-10 w-auto max-w-[68px] lg:max-w-none object-contain" alt="Universidad de Chile" />
+      <div class="hidden sm:block w-px h-6 bg-slate-200 flex-shrink-0"></div>
+
+      <!-- Cuenta -->
+      <div class="relative">
+        <button id="account-btn" onclick="toggleAccountPanel()"
+                class="w-7 h-7 lg:w-9 lg:h-9 rounded-full bg-brand-600 hover:bg-brand-700 text-white text-[11px] lg:text-[13px] font-semibold flex items-center justify-center transition-colors flex-shrink-0"
+                title="{{ user_name or user_email or '' }}">
+          {{ (user_name or user_email or '?')[:1]|upper }}
+        </button>
+
+        <div id="account-panel" class="hidden absolute right-0 top-full mt-2 w-72 bg-white border border-slate-200 rounded-xl shadow-lg z-30 overflow-hidden">
+          <div class="px-4 py-3 border-b border-slate-100">
+            <p class="text-[13px] font-semibold text-slate-800 truncate">{{ user_name or 'Usuario' }}</p>
+            <p class="text-[11px] text-slate-400 truncate">{{ user_email or '' }}</p>
+            {% if user_provider %}
+            <div class="flex items-center gap-1.5 mt-2">
+              {% if user_provider == 'google' %}
+              <svg class="w-3.5 h-3.5 flex-shrink-0" viewBox="0 0 24 24">
+                <path fill="#4285F4" d="M23.52 12.27c0-.85-.08-1.67-.22-2.45H12v4.64h6.47a5.54 5.54 0 01-2.4 3.64v3h3.88c2.27-2.09 3.57-5.17 3.57-8.83z"/>
+                <path fill="#34A853" d="M12 24c3.24 0 5.95-1.08 7.93-2.9l-3.88-3c-1.08.72-2.45 1.15-4.05 1.15-3.11 0-5.75-2.1-6.69-4.93H1.3v3.1A12 12 0 0012 24z"/>
+                <path fill="#FBBC05" d="M5.31 14.32a7.2 7.2 0 010-4.64v-3.1H1.3a12 12 0 000 10.84l4.01-3.1z"/>
+                <path fill="#EA4335" d="M12 4.75c1.76 0 3.34.6 4.58 1.79l3.44-3.44C17.94 1.19 15.24 0 12 0A12 12 0 001.3 6.58l4.01 3.1C6.25 6.85 8.89 4.75 12 4.75z"/>
+              </svg>
+              <span class="text-[10.5px] text-slate-400">Cuenta Google</span>
+              {% elif user_provider == 'microsoft' %}
+              <svg class="w-3.5 h-3.5 flex-shrink-0" viewBox="0 0 21 21">
+                <rect x="1" y="1" width="9" height="9" fill="#f25022"/>
+                <rect x="11" y="1" width="9" height="9" fill="#7fba00"/>
+                <rect x="1" y="11" width="9" height="9" fill="#00a4ef"/>
+                <rect x="11" y="11" width="9" height="9" fill="#ffb900"/>
+              </svg>
+              <span class="text-[10.5px] text-slate-400">Cuenta Microsoft</span>
+              {% endif %}
+            </div>
+            {% endif %}
+          </div>
+
+          <div class="px-4 py-3 border-b border-slate-100">
+            <div class="flex items-center justify-between mb-1.5">
+              <p class="text-[10.5px] font-semibold text-slate-500 uppercase tracking-wide">Uso diario</p>
+              <p id="usage-text" class="text-[11px] text-slate-400">—</p>
+            </div>
+            <div class="h-1.5 bg-slate-100 rounded-full overflow-hidden">
+              <div id="usage-bar" class="h-full bg-emerald-500 transition-all duration-300" style="width:0%"></div>
+            </div>
+            <p id="usage-reset" class="text-[10px] text-slate-400 mt-1.5"></p>
+          </div>
+
+          <a href="/logout" class="block px-4 py-2.5 text-[12.5px] text-red-500 hover:bg-red-50 font-medium transition-colors">Cerrar sesión</a>
+        </div>
+      </div>
+    </div>
+  </header>

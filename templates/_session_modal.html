@@ -1,0 +1,18 @@
+  <!-- Aviso de sesión vencida -- no se puede cerrar sin re-loguearse (mismo
+       patrón que Azure/Databricks: tapa la pantalla en vez de fallar en
+       silencio cuando el usuario vuelve de estar AFK). -->
+  <div id="session-expired-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm px-4">
+    <div class="bg-white rounded-2xl shadow-xl max-w-sm w-full p-7 text-center">
+      <div class="w-12 h-12 rounded-full bg-amber-100 flex items-center justify-center mx-auto mb-4">
+        <svg class="w-6 h-6 text-amber-600" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0z"/>
+          <path stroke-linecap="round" stroke-linejoin="round" d="M12 15.75h.007"/>
+        </svg>
+      </div>
+      <h2 class="text-[16px] font-semibold text-slate-800 mb-1.5">Tu sesión expiró</h2>
+      <p class="text-[13px] text-slate-500 leading-relaxed mb-6">Por seguridad, cerramos tu sesión por inactividad. Vuelve a iniciar sesión para continuar donde quedaste.</p>
+      <a href="/login" class="block w-full bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium rounded-lg py-2.5 shadow-sm">
+        Volver a iniciar sesión
+      </a>
+    </div>
+  </div>

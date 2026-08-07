@@ -1,6 +1,11 @@
-# Asistente IA · Compra Ágil — MVP 1
+# Asistente IA · Compras Públicas — MVP 1
 
-Herramienta conversacional de IA que automatiza la preparación de **fichas técnicas de computadores** en la plataforma [Compra Ágil](https://www.mercadopublico.cl) del sistema Mercado Público de Chile.
+Herramienta de IA para preparar compras en el sistema Mercado Público de Chile, organizada por categorías:
+
+- **Computadores** — asistente conversacional que automatiza la preparación de fichas técnicas y estima precios de referencia en [Compra Ágil](https://www.mercadopublico.cl).
+- **Medicamentos** — buscador inteligente sobre el historial de compras (nombre de producto, principio activo, concentración, forma farmacéutica, laboratorio).
+
+La pantalla post-login deja elegir la categoría; se espera seguir sumando más.
 
 > **Estado:** Desarrollo completado · Presentado a ChileCompra · Listo para pruebas de integración  
 > **Versión:** `v1.0.0` · Primer deploy Railway: 15 mayo 2026, 12:15 PM GMT-4  
@@ -12,9 +17,10 @@ Herramienta conversacional de IA que automatiza la preparación de **fichas téc
 
 ```
 MVP1/
-├── MVP1-AIChileCompra-backend/       # API FastAPI — lógica, IA, FAISS, precios
+├── MVP1-AIChileCompra-backend/       # API FastAPI — lógica, IA, FAISS, precios, búsqueda
 │   ├── agents/                       # FichaAgent, AttributeMatcher, embeddings
-│   ├── services/                     # PriceService, GuardrailService, analytics
+│   ├── services/                     # PriceService, GuardrailService, analytics,
+│   │                                 #   MedicamentoService (buscador)
 │   ├── diccionarios/
 │   │   ├── attribute_dictionary.csv  # Vocabulario canónico Compra Ágil
 │   │   └── attribute_complement.csv  # Reglas de atributos derivados
@@ -22,8 +28,14 @@ MVP1/
 │   └── main.py
 └── MVP1-AIChileCompra-frontend/      # Servidor Flask — interfaz web y proxy
     ├── app.py
-    ├── templates/index.html
-    ├── static/js/app.js
+    ├── templates/
+    │   ├── categorias.html           # Selector de categoría (home post-login)
+    │   ├── computadores.html
+    │   └── medicamentos.html
+    ├── static/js/
+    │   ├── shell.js                  # Compartido entre categorías (cuenta, sesión)
+    │   ├── app.js                    # Computadores
+    │   └── medicamentos.js
     └── imagenes/
 ```
 

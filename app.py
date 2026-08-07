@@ -68,17 +68,38 @@ def _require_login():
     if request.endpoint in _PUBLIC_ENDPOINTS:
         return None
     if not session.get("logged_in"):
+        # Las llamadas del chat (fetch/SSE) no navegan la página -- si acá
+        # se devuelve un redirect normal, el fetch lo sigue solo y termina
+        # leyendo el HTML de /login como si fuera la respuesta esperada
+        # (stream SSE roto, sin ningún error visible para el usuario). Un
+        # 401 JSON deja que app.js lo detecte y muestre el aviso de sesión
+        # vencida en vez de fallar en silencio.
+        if request.path.startswith("/api/"):
+            return {"error": "session_expired"}, 401
         return redirect(url_for("auth.login"))
+
+
+def _account_context():
+    return {
+        "user_name": session.get("name"),
+        "user_email": session.get("email"),
+        "user_provider": session.get("provider"),
+    }
 
 
 @app.route("/")
 def index():
-    return render_template(
-        "index.html",
-        user_name=session.get("name"),
-        user_email=session.get("email"),
-        user_provider=session.get("provider"),
-    )
+    return render_template("categorias.html", **_account_context())
+
+
+@app.route("/computadores")
+def computadores():
+    return render_template("computadores.html", **_account_context())
+
+
+@app.route("/medicamentos")
+def medicamentos():
+    return render_template("medicamentos.html", **_account_context())
 
 
 # Solo estos sub-paths del backend son alcanzables a través del proxy --
@@ -89,6 +110,7 @@ def index():
 # "chat/<session_id>").
 _ALLOWED_PROXY_PREFIXES = {
     "chat", "manual_update", "cm_offers", "offers", "track", "reset", "usage", "dropdowns",
+    "medicamentos",
 }
 
 
@@ -108,6 +130,8 @@ def proxy(path):
     if normalized != path or normalized.split("/", 1)[0] not in _ALLOWED_PROXY_PREFIXES:
         abort(404)
     url = f"{API_URL}/api/{normalized}"
+    if request.query_string:
+        url = f"{url}?{request.query_string.decode('utf-8')}"
     headers = {
         "x-api-key": FRONTEND_API_KEY,
         "x-user-email": session.get("email", ""),

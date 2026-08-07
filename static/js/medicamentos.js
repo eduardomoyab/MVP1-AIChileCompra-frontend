@@ -4,10 +4,18 @@
    ═══════════════════════════════════════════════════════════════ */
 
 const searchInput   = document.getElementById('med-search-input');
-const filterLab     = document.getElementById('med-filter-laboratorio');
-const filterForma   = document.getElementById('med-filter-forma');
-const resultsEl     = document.getElementById('med-results');
-const resultsMetaEl = document.getElementById('med-results-meta');
+const facetsEl       = document.getElementById('med-facets');
+const resultsEl      = document.getElementById('med-results');
+const resultsMetaEl  = document.getElementById('med-results-meta');
+
+const FACET_LABELS = {
+  laboratorio: 'Laboratorio',
+  forma_farmaceutica: 'Forma farmacéutica',
+  concentracion: 'Concentración',
+};
+
+// Filtros activos -- un solo valor seleccionado por dimensión a la vez.
+const activeFilters = { laboratorio: '', forma_farmaceutica: '', concentracion: '' };
 
 let _searchDebounce = null;
 let _searchSeq = 0; // descarta respuestas que llegan fuera de orden (fetch lento + usuario sigue escribiendo)
@@ -29,7 +37,7 @@ function noResultsHtml() {
         <path stroke-linecap="round" stroke-linejoin="round" d="M9.75 9.75l4.5 4.5m0-4.5l-4.5 4.5M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
       </svg>
       <p class="text-[13px]">No encontramos medicamentos con esos términos</p>
-      <p class="text-[12px] text-slate-400 mt-1">Prueba con menos palabras, o solo el principio activo</p>
+      <p class="text-[12px] text-slate-400 mt-1">Prueba con menos palabras, o quita algún filtro</p>
     </div>`;
 }
 
@@ -74,21 +82,64 @@ function renderResults(data) {
   if (!results.length) {
     resultsEl.innerHTML = noResultsHtml();
     resultsMetaEl.classList.add('hidden');
+  } else {
+    resultsEl.innerHTML = results.map(renderCard).join('');
+    resultsMetaEl.textContent = `${results.length} resultado${results.length === 1 ? '' : 's'}`;
+    resultsMetaEl.classList.remove('hidden');
+  }
+  renderFacets(data.facets || {});
+}
+
+function renderFacets(facets) {
+  const dims = Object.keys(FACET_LABELS).filter(d => (facets[d] || []).length);
+  if (!dims.length) {
+    facetsEl.classList.add('hidden');
+    facetsEl.innerHTML = '';
     return;
   }
-  resultsEl.innerHTML = results.map(renderCard).join('');
-  resultsMetaEl.textContent = `${results.length} resultado${results.length === 1 ? '' : 's'}`;
-  resultsMetaEl.classList.remove('hidden');
+
+  facetsEl.innerHTML = dims.map(dim => {
+    const values = facets[dim] || [];
+    const chips = values.map(v => {
+      const isActive = activeFilters[dim] === v.value;
+      const cls = isActive
+        ? 'bg-brand-600 text-white border-brand-600'
+        : 'bg-white text-slate-600 border-slate-200 hover:border-brand-300 hover:text-brand-700';
+      return `<button type="button" class="facet-chip text-[11.5px] font-medium border rounded-full px-2.5 py-1 transition-colors ${cls}"
+                data-dim="${escapeHtml(dim)}" data-value="${escapeHtml(v.value)}">
+                ${escapeHtml(v.value)} <span class="opacity-60">(${escapeHtml(v.count)})</span>
+              </button>`;
+    }).join('');
+    return `
+      <div>
+        <p class="text-[10.5px] font-semibold text-slate-400 uppercase tracking-wide mb-1">${FACET_LABELS[dim]}</p>
+        <div class="flex flex-wrap gap-1.5">${chips}</div>
+      </div>`;
+  }).join('');
+  facetsEl.classList.remove('hidden');
+
+  facetsEl.querySelectorAll('.facet-chip').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const dim = btn.dataset.dim;
+      const value = btn.dataset.value;
+      // click de nuevo sobre el mismo chip activo -> lo desactiva
+      activeFilters[dim] = (activeFilters[dim] === value) ? '' : value;
+      doSearch();
+    });
+  });
+}
+
+function hasActiveFilters() {
+  return Object.values(activeFilters).some(Boolean);
 }
 
 function doSearch() {
   const q = searchInput.value.trim();
-  const laboratorio = filterLab.value;
-  const forma = filterForma.value;
 
-  if (!q && !laboratorio && !forma) {
+  if (!q && !hasActiveFilters()) {
     resultsEl.innerHTML = emptyStateHtml();
     resultsMetaEl.classList.add('hidden');
+    facetsEl.classList.add('hidden');
     return;
   }
 
@@ -97,8 +148,9 @@ function doSearch() {
 
   const params = new URLSearchParams();
   if (q) params.set('q', q);
-  if (laboratorio) params.set('laboratorio', laboratorio);
-  if (forma) params.set('forma_farmaceutica', forma);
+  if (activeFilters.laboratorio) params.set('laboratorio', activeFilters.laboratorio);
+  if (activeFilters.forma_farmaceutica) params.set('forma_farmaceutica', activeFilters.forma_farmaceutica);
+  if (activeFilters.concentracion) params.set('concentracion', activeFilters.concentracion);
 
   apiFetch(`/api/medicamentos/search?${params.toString()}`, { headers: _headers() })
     .then(r => r && r.ok ? r.json() : null)
@@ -117,29 +169,7 @@ function onSearchInput() {
   _searchDebounce = setTimeout(doSearch, 300);
 }
 
-function loadFilterOptions() {
-  apiFetch('/api/medicamentos/dropdowns')
-    .then(r => r && r.ok ? r.json() : {})
-    .then(data => {
-      if (!data) return;
-      const fill = (select, values) => {
-        (values || []).forEach(v => {
-          const opt = document.createElement('option');
-          opt.value = v;
-          opt.textContent = v;
-          select.appendChild(opt);
-        });
-      };
-      fill(filterLab, data.laboratorio);
-      fill(filterForma, data.forma_farmaceutica);
-    })
-    .catch(() => {});
-}
-
 document.addEventListener('DOMContentLoaded', () => {
-  loadFilterOptions();
   searchInput.addEventListener('input', onSearchInput);
-  filterLab.addEventListener('change', doSearch);
-  filterForma.addEventListener('change', doSearch);
   searchInput.focus();
 });

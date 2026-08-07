@@ -62,17 +62,10 @@
                class="w-full bg-white border border-slate-200 rounded-xl pl-10 pr-4 py-3 text-[14px] text-slate-800 placeholder:text-slate-400 shadow-sm focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500" />
       </div>
 
-      <!-- Filtros -->
-      <div class="flex flex-wrap gap-2 mb-5">
-        <select id="med-filter-laboratorio"
-                class="text-[12.5px] text-slate-600 bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-brand-500 max-w-[200px]">
-          <option value="">Laboratorio (todos)</option>
-        </select>
-        <select id="med-filter-forma"
-                class="text-[12.5px] text-slate-600 bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-brand-500 max-w-[200px]">
-          <option value="">Forma farmacéutica (todas)</option>
-        </select>
-      </div>
+      <!-- Filtros: se arman a partir de lo que efectivamente aparece en los
+           resultados de la búsqueda actual (no un listado fijo de toda la
+           tabla -- laboratorio solo tiene miles de valores distintos). -->
+      <div id="med-facets" class="hidden space-y-2.5 mb-4"></div>
 
       <div id="med-results-meta" class="text-[12px] text-slate-400 mb-2 hidden"></div>
 

@@ -3,7 +3,7 @@
 Herramienta de IA para preparar compras en el sistema Mercado Público de Chile, organizada por categorías:
 
 - **Computadores** — asistente conversacional que automatiza la preparación de fichas técnicas y estima precios de referencia en [Compra Ágil](https://www.mercadopublico.cl).
-- **Medicamentos** — buscador inteligente sobre el historial de compras (nombre de producto, principio activo, concentración, forma farmacéutica, laboratorio).
+- **Medicamentos** — selector guiado de atributos: un texto libre ("Eutirox 100mg") se analiza por IA para sugerir principio activo/forma/concentración, con estimación de precio en vivo y un carrito de requerimientos exportable a PDF (con descripción generada por IA para oferentes, sin mencionar marca).
 
 La pantalla post-login deja elegir la categoría; se espera seguir sumando más.
 
@@ -18,9 +18,9 @@ La pantalla post-login deja elegir la categoría; se espera seguir sumando más.
 ```
 MVP1/
 ├── MVP1-AIChileCompra-backend/       # API FastAPI — lógica, IA, FAISS, precios, búsqueda
-│   ├── agents/                       # FichaAgent, AttributeMatcher, embeddings
+│   ├── agents/                       # FichaAgent, MedicamentoAgent, AttributeMatcher, embeddings
 │   ├── services/                     # PriceService, GuardrailService, analytics,
-│   │                                 #   MedicamentoService (buscador)
+│   │                                 #   MedicamentoService (precio/facetas/historial)
 │   ├── diccionarios/
 │   │   ├── attribute_dictionary.csv  # Vocabulario canónico Compra Ágil
 │   │   └── attribute_complement.csv  # Reglas de atributos derivados

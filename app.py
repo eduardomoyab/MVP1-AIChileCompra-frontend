@@ -3,7 +3,7 @@ import posixpath
 from datetime import timedelta
 
 import httpx
-from flask import Flask, abort, redirect, render_template, send_from_directory, request, Response, session, stream_with_context, url_for
+from flask import Flask, abort, flash, redirect, render_template, send_from_directory, request, Response, session, stream_with_context, url_for
 from dotenv import load_dotenv
 from flask_limiter.util import get_remote_address
 from werkzeug.middleware.proxy_fix import ProxyFix
@@ -25,6 +25,19 @@ FRONTEND_API_KEY = os.getenv("FRONTEND_API_KEY", "")
 HOST             = os.getenv("FLASK_HOST", "0.0.0.0")
 PORT             = int(os.getenv("FLASK_PORT", "5000"))
 DEBUG            = os.getenv("FLASK_DEBUG", "true").lower() == "true"
+
+# Salta el login SOLO en desarrollo local -- nunca debe activarse en
+# Railway. El guard contra RAILWAY_ENVIRONMENT (variable que Railway
+# inyecta automáticamente en todo deploy) es defensa en profundidad: si
+# alguien copia el .env local a las variables de Railway por error, esto
+# igual no se activa allá.
+LOCAL_DEV_AUTOLOGIN = (
+    os.getenv("LOCAL_DEV_AUTOLOGIN", "false").lower() == "true"
+    and not os.getenv("RAILWAY_ENVIRONMENT")
+)
+if LOCAL_DEV_AUTOLOGIN:
+    import logging
+    logging.warning("[DEV] LOCAL_DEV_AUTOLOGIN activo -- el login está deshabilitado, NO USAR EN PRODUCCIÓN")
 
 app.secret_key = os.environ["SECRET_KEY"]
 app.config["SESSION_COOKIE_HTTPONLY"] = True
@@ -68,6 +81,12 @@ def _require_login():
     if request.endpoint in _PUBLIC_ENDPOINTS:
         return None
     if not session.get("logged_in"):
+        if LOCAL_DEV_AUTOLOGIN:
+            session["logged_in"] = True
+            session["email"] = os.getenv("LOCAL_DEV_EMAIL", "dev-local@localhost")
+            session["name"] = "Dev Local"
+            session["provider"] = "local-dev"
+            return None
         # Las llamadas del chat (fetch/SSE) no navegan la página -- si acá
         # se devuelve un redirect normal, el fetch lo sigue solo y termina
         # leyendo el HTML de /login como si fuera la respuesta esperada
@@ -87,18 +106,51 @@ def _account_context():
     }
 
 
+# Secciones que existen HOY en la app. Los slugs deben calzar exactamente
+# con los que un admin cree en db-admin-panel > Aplicaciones > (esta app) >
+# Secciones -- si el slug no coincide, esa sección simplemente no aparece
+# como asignable (falla cerrado, no abre acceso por accidente).
+_SECTIONS = {
+    "computadores": {"route": "computadores", "label": "Computadores"},
+    "medicamentos": {"route": "medicamentos", "label": "Medicamentos"},
+}
+
+
+def _allowed_sections():
+    """Slugs de _SECTIONS que la sesión actual puede ver. session["sections"]
+    viene de auth.py: None = la app no tiene secciones configuradas en
+    db-admin-panel (sin restricción, todas visibles); lista = solo esas."""
+    sections = session.get("sections")
+    if sections is None:
+        return list(_SECTIONS.keys())
+    return [s for s in sections if s in _SECTIONS]
+
+
+def _section_denied():
+    flash("No tienes acceso a esa sección. Pídele a un administrador que te la habilite.", "error")
+    return redirect(url_for("index"))
+
+
 @app.route("/")
 def index():
-    return render_template("categorias.html", **_account_context())
+    allowed = _allowed_sections()
+    if len(allowed) == 1:
+        return redirect(url_for(_SECTIONS[allowed[0]]["route"]))
+    sections = [{"slug": s, **_SECTIONS[s]} for s in allowed]
+    return render_template("categorias.html", sections=sections, **_account_context())
 
 
 @app.route("/computadores")
 def computadores():
+    if "computadores" not in _allowed_sections():
+        return _section_denied()
     return render_template("computadores.html", **_account_context())
 
 
 @app.route("/medicamentos")
 def medicamentos():
+    if "medicamentos" not in _allowed_sections():
+        return _section_denied()
     return render_template("medicamentos.html", **_account_context())
 
 

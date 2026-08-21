@@ -51,31 +51,8 @@ const dropdowns = {};
 // _headers(), apiFetch() y showSessionExpiredModal() viven en shell.js
 // (compartido con medicamentos.js y la página de categorías).
 
-// ── SSE helpers ──────────────────────────────────────────────────
-async function readSSEStream(response) {
-  const reader = response.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = '';
-  try {
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split('\n');
-      buffer = lines.pop(); // guarda línea incompleta
-      for (const line of lines) {
-        if (!line.startsWith('data: ')) continue;
-        const raw = line.slice(6).trim();
-        if (raw === '[DONE]') return;
-        try { handleServerMessage(JSON.parse(raw)); } catch (e) {}
-      }
-    }
-  } finally {
-    reader.releaseLock();
-  }
-}
-
 // ── Mensajes del servidor ────────────────────────────────────────
+// (readSSEStream vive en shell.js, compartido con medicamentos.js)
 function handleServerMessage(data) {
   switch (data.type) {
     case 'thinking':
@@ -328,7 +305,7 @@ async function sendMessage() {
       hidePriceLoading(state.ficha['tipo_equipo']?.value == null);
       return;
     }
-    await readSSEStream(res);
+    await readSSEStream(res, handleServerMessage);
   } catch (err) {
     hideTyping();
     state.streamingBubble = null;
@@ -769,7 +746,7 @@ function commitEdit(attr, value) {
     headers: _headers(),
     body: JSON.stringify({ attribute: attr, value }),
   })
-    .then(res => { if (res) return readSSEStream(res); hidePriceLoading(true); })
+    .then(res => { if (res) return readSSEStream(res, handleServerMessage); hidePriceLoading(true); })
     .catch(err => {
       console.error('Error en manual_update:', err);
       hidePriceLoading(true);

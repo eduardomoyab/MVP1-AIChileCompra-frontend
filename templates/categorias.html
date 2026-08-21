@@ -44,8 +44,10 @@
       <p class="text-[13px] text-slate-500">Elige una categoría para empezar</p>
     </div>
 
+    {% if sections %}
     <div class="grid grid-cols-1 sm:grid-cols-2 gap-5 w-full max-w-2xl">
-
+      {% for s in sections %}
+      {% if s.slug == "computadores" %}
       <a href="{{ url_for('computadores') }}"
          class="group bg-white border border-slate-200 rounded-2xl shadow-sm hover:shadow-md hover:border-brand-300 transition-all p-7 flex flex-col items-center text-center">
         <div class="w-14 h-14 rounded-xl bg-brand-50 group-hover:bg-brand-100 flex items-center justify-center mb-4 transition-colors">
@@ -56,7 +58,7 @@
         <h2 class="text-[15px] font-semibold text-slate-800 mb-1">Computadores</h2>
         <p class="text-[12.5px] text-slate-500 leading-relaxed">Asistente conversacional que arma la ficha técnica y estima precios de referencia.</p>
       </a>
-
+      {% elif s.slug == "medicamentos" %}
       <a href="{{ url_for('medicamentos') }}"
          class="group bg-white border border-slate-200 rounded-2xl shadow-sm hover:shadow-md hover:border-brand-300 transition-all p-7 flex flex-col items-center text-center">
         <div class="w-14 h-14 rounded-xl bg-brand-50 group-hover:bg-brand-100 flex items-center justify-center mb-4 transition-colors">
@@ -68,8 +70,14 @@
         <h2 class="text-[15px] font-semibold text-slate-800 mb-1">Medicamentos</h2>
         <p class="text-[12.5px] text-slate-500 leading-relaxed">Buscador inteligente: escribe un nombre, principio activo, dosis o laboratorio y encuentra las variantes.</p>
       </a>
-
+      {% endif %}
+      {% endfor %}
     </div>
+    {% else %}
+    <div class="text-center max-w-md">
+      <p class="text-[13.5px] text-slate-500">Tu cuenta todavía no tiene ninguna sección habilitada. Pídele a un administrador que te asigne acceso en el módulo Aplicaciones del panel.</p>
+    </div>
+    {% endif %}
   </main>
 
   {% include "_session_modal.html" %}

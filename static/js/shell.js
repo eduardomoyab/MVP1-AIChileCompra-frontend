@@ -27,6 +27,34 @@ function safeUrl(url) {
   }
 }
 
+// ── SSE helpers ───────────────────────────────────────────────────
+// Lee un stream SSE genérico, invocando onEvent(data) por cada línea
+// "data: {...}" -- se detiene en "data: [DONE]". Qué hacer con cada tipo
+// de evento queda a cargo de quien llama (distinto por página: app.js
+// para Computadores, medicamentos.js para el selector guiado).
+async function readSSEStream(response, onEvent) {
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop(); // guarda línea incompleta
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue;
+        const raw = line.slice(6).trim();
+        if (raw === '[DONE]') return;
+        try { onEvent(JSON.parse(raw)); } catch (e) {}
+      }
+    }
+  } finally {
+    reader.releaseLock();
+  }
+}
+
 // ── HTTP helpers ─────────────────────────────────────────────────
 const _headers = () => ({ 'Content-Type': 'application/json' });
 

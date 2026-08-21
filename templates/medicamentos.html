@@ -32,54 +32,115 @@
   </script>
 
   <link rel="stylesheet" href="/static/css/style.css" />
+  <!-- Exportación de PDF 100% client-side -- mismo mecanismo que ya usa
+       Computadores para "ficha-tecnica-compra-agil-....pdf" -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+  <style>
+    /* Transición de "pantalla" al pasar de un paso a otro -- fade + leve
+       desplazamiento, para que se sienta como que se va desbloqueando el
+       siguiente en vez de que el contenido salte de golpe. */
+    #med-screen { transition: opacity .22s ease, transform .22s ease; }
+    #med-screen.med-screen-enter { opacity: 0; transform: translateY(10px) scale(.985); }
+
+    /* Fade-in corto para bloques que se re-renderizan in-place (chips que
+       reemplazan el mensaje de carga, resultados filtrados, etc.) */
+    @keyframes med-pop { from { opacity: 0; transform: translateY(3px); } to { opacity: 1; transform: none; } }
+    .med-pop { animation: med-pop .22s ease both; }
+
+    /* Estilo "documento" -- compartido entre la vista previa en vivo (panel
+       lateral, ver renderDocPreview()/reqBlockHtml() en medicamentos.js) y
+       el PDF real descargable (buildAndSavePDF() agrega solo un par de
+       ajustes de tamaño encima mientras genera el PDF). La vista previa
+       usa literalmente estas mismas clases -- es el documento de verdad
+       renderizado en la página, no una versión aparte simplificada. */
+    .pdf-wrap { font-family: Arial, Helvetica, sans-serif; font-size: 13px; color: #1e293b; padding: 22px; background: #fff; }
+    .pdf-wrap .hdr { text-align: center; margin-bottom: 16px; }
+    .pdf-wrap .hdr img { height: 34px; width: auto; margin: 0 auto 6px; display: block; }
+    .pdf-wrap .hdr h1 { font-size: 16px; margin: 4px 0 2px; }
+    .pdf-wrap .hdr p { font-size: 10.5px; color: #64748b; margin: 0; }
+    .pdf-wrap .ftr { margin-top: 18px; text-align: center; font-size: 9.5px; color: #94a3b8; }
+    .req { margin-bottom: 16px; }
+    .req-title { font-size: 13.5px; font-weight: bold; color: #154f96; margin: 0 0 4px; }
+    .req-texto { font-size: 11.5px; font-style: italic; color: #475569; }
+    .req-desc { font-size: 11px; color: #334155; background: #f8fafc; border-left: 3px solid #154f96; line-height: 1.5; padding: 7px 9px; margin: 6px 0; }
+    .req-table { width: 100%; border-collapse: collapse; font-size: 11px; }
+    .req-table td { border-bottom: 1px solid #e2e8f0; padding: 5px 6px; }
+    .req-table .lbl { color: #64748b; width: 42%; }
+    .req-table .val { color: #1e293b; font-weight: 600; }
+  </style>
 </head>
 
 <body class="h-screen flex flex-col bg-slate-100 overflow-hidden">
 
-  {% set shell_subtitle = "Buscador Inteligente de Medicamentos" %}
+  {% set shell_subtitle = "Selector Guiado de Medicamentos" %}
   {% include "_header.html" %}
 
+  <!-- Barra de progreso + volver -- oculta en la pantalla de texto inicial.
+       Solo permite retroceder de a un paso (sin saltar directo a uno lejano). -->
+  <div id="med-progress-wrap" class="hidden flex-shrink-0 bg-white border-b border-slate-200">
+    <div class="max-w-2xl mx-auto px-4 py-3 flex items-center gap-3">
+      <button id="med-back-btn" type="button" aria-label="Volver"
+              class="flex-shrink-0 w-7 h-7 flex items-center justify-center rounded-lg text-slate-400 hover:text-brand-600 hover:bg-slate-50 transition-colors">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7"/></svg>
+      </button>
+      <div id="med-progress-segments" class="flex-1 flex gap-1.5"></div>
+      <span id="med-price-mini" class="hidden flex-shrink-0 text-[14px] font-extrabold text-emerald-700 bg-emerald-50 border border-emerald-200 px-3 py-1 rounded-full transition-opacity duration-150"></span>
+    </div>
+  </div>
+
+  <!-- Una sola pantalla a la vez, centrada. En pantallas grandes se agrega
+       a la derecha una vista previa en vivo del documento de requerimientos
+       (carrito + lo que se está armando ahora) -- aprovecha el espacio que
+       sobra al lado del wizard angosto. Oculta en mobile (hidden lg:flex). -->
   <main class="flex-1 overflow-y-auto">
-    <div class="max-w-3xl mx-auto px-4 py-6 lg:py-10">
-
-      <div class="flex items-center gap-2 mb-1.5">
-        <a href="{{ url_for('index') }}" class="text-[12px] text-slate-400 hover:text-brand-600 transition-colors flex items-center gap-1">
-          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M10.5 19.5L3 12m0 0l7.5-7.5M3 12h18"/>
-          </svg>
-          Categorías
-        </a>
+    <div class="min-h-full max-w-7xl mx-auto flex flex-col lg:flex-row items-center lg:items-start justify-center gap-6 lg:gap-10 px-4 py-10">
+      <div class="w-full max-w-2xl">
+        <div id="med-screen" class="w-full"></div>
       </div>
-      <h1 class="text-lg lg:text-xl font-semibold text-slate-800 mb-1">Buscador de Medicamentos</h1>
-      <p class="text-[13px] text-slate-500 mb-5">Escribe el nombre comercial, principio activo, dosis o laboratorio — por ejemplo <span class="italic">"eutirox 100 mcg"</span> o <span class="italic">"paracetamol jarabe"</span>.</p>
-
-      <!-- Buscador -->
-      <div class="relative mb-3">
-        <svg class="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-          <circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
-        </svg>
-        <input id="med-search-input" type="text" autocomplete="off" placeholder="Buscar medicamento..."
-               class="w-full bg-white border border-slate-200 rounded-xl pl-10 pr-4 py-3 text-[14px] text-slate-800 placeholder:text-slate-400 shadow-sm focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500" />
-      </div>
-
-      <!-- Filtros: se arman a partir de lo que efectivamente aparece en los
-           resultados de la búsqueda actual (no un listado fijo de toda la
-           tabla -- laboratorio solo tiene miles de valores distintos). -->
-      <div id="med-facets" class="hidden space-y-2.5 mb-4"></div>
-
-      <div id="med-results-meta" class="text-[12px] text-slate-400 mb-2 hidden"></div>
-
-      <div id="med-results" class="space-y-2">
-        <div class="text-center py-16 text-slate-400">
-          <svg class="w-10 h-10 mx-auto mb-3 text-slate-300" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
-            <circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
-          </svg>
-          <p class="text-[13px]">Empieza a escribir para buscar</p>
+      <aside class="hidden lg:flex flex-col w-full max-w-xl flex-shrink-0 sticky top-10 max-h-[calc(100vh-6rem)]">
+        <div class="bg-white border border-slate-200 rounded-2xl shadow-sm flex flex-col overflow-hidden">
+          <div class="px-4 py-3 border-b border-slate-100 flex items-center gap-2 flex-shrink-0">
+            <svg class="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+            <p class="text-[11px] font-semibold text-slate-600 uppercase tracking-wide">Vista previa del documento</p>
+          </div>
+          <div id="med-doc-preview" class="overflow-y-auto flex-1 bg-slate-100 p-3"></div>
         </div>
-      </div>
-
+      </aside>
     </div>
   </main>
+
+  <!-- ─── Barra flotante del carrito de requerimientos ─────────────── -->
+  <div id="cart-bar" class="hidden fixed bottom-5 left-1/2 -translate-x-1/2 z-30">
+    <button id="cart-bar-btn" class="flex items-center gap-2.5 pl-4 pr-5 py-3 bg-brand-700 hover:bg-brand-800 text-white rounded-full shadow-lg shadow-brand-900/20 transition-colors">
+      <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+      <span class="text-[13.5px] font-semibold"><span id="cart-count">0</span> requerimiento<span id="cart-plural">s</span></span>
+      <span class="text-[13px] font-medium text-brand-100 border-l border-white/20 pl-2.5">Ver cotización →</span>
+    </button>
+  </div>
+
+  <!-- ─── Panel del carrito de requerimientos ──────────────────────── -->
+  <div id="cart-panel" class="hidden fixed inset-0 z-40">
+    <div id="cart-backdrop" class="absolute inset-0 bg-slate-900/40"></div>
+    <div class="absolute inset-y-0 right-0 w-full sm:w-[480px] bg-white shadow-2xl flex flex-col">
+      <div class="flex items-center justify-between px-5 py-4 border-b border-slate-100 flex-shrink-0">
+        <div>
+          <h2 class="text-[15px] font-semibold text-slate-800">Mi cotización</h2>
+          <p class="text-[12px] text-slate-400"><span id="cart-panel-count">0</span> requerimiento(s) de compra</p>
+        </div>
+        <button id="cart-close" class="w-8 h-8 flex items-center justify-center rounded-lg text-slate-400 hover:bg-slate-100">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
+        </button>
+      </div>
+      <div id="cart-items" class="flex-1 overflow-y-auto px-5 py-4 space-y-3"></div>
+      <div class="flex-shrink-0 px-5 py-3.5 border-t border-slate-100 space-y-2">
+        <button id="cart-pdf-btn" class="w-full flex items-center justify-center gap-2 py-2.5 bg-brand-600 hover:bg-brand-700 disabled:bg-slate-200 disabled:text-slate-400 disabled:cursor-not-allowed text-white text-[13px] font-semibold rounded-lg transition-colors">
+          <svg id="cart-pdf-icon" class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H8a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+          Descargar PDF de requerimientos
+        </button>
+        <button id="cart-empty-btn" class="w-full text-center text-[12.5px] font-medium text-red-500 hover:text-red-600 py-1">Vaciar cotización</button>
+      </div>
+    </div>
+  </div>
 
   {% include "_session_modal.html" %}
 

@@ -133,10 +133,12 @@ def _verify_turnstile(token: str, remote_ip: str = None) -> bool:
         return False
 
 
-def is_email_allowed(email: str) -> bool:
+def check_access(email: str):
     """Le pregunta al backend (GET /api/auth/check_access) en vez de tocar
     Postgres directo — el frontend no tiene ni debe tener credenciales de
-    base de datos propias."""
+    base de datos propias. Devuelve (allowed, sections): sections es None
+    si la app no tiene secciones definidas (sin restricción) o una lista
+    de slugs (puede ser vacía) si sí las tiene."""
     api_url = os.getenv("API_URL", "http://localhost:8000")
     api_key = os.getenv("FRONTEND_API_KEY", "")
     try:
@@ -147,10 +149,11 @@ def is_email_allowed(email: str) -> bool:
             timeout=10,
         )
         resp.raise_for_status()
-        return bool(resp.json().get("allowed"))
+        data = resp.json()
+        return bool(data.get("allowed")), data.get("sections")
     except Exception:
         current_app.logger.exception("Error consultando lista blanca de acceso")
-        return False
+        return False, []
 
 
 def login_required(view):
@@ -172,13 +175,16 @@ def _no_access(email):
     return redirect(url_for("auth.login"))
 
 
-def _start_session(email, name=None, provider=None):
+def _start_session(email, name=None, provider=None, sections=None):
     session.clear()
     session.permanent = True
     session["logged_in"] = True
     session["email"] = email
     session["name"] = name or email
     session["provider"] = provider
+    # None = la app no tiene secciones definidas (sin restricción); lista
+    # (posiblemente vacía) = solo esas secciones son visibles/accesibles.
+    session["sections"] = sections
     return redirect(url_for("index"))
 
 
@@ -226,10 +232,11 @@ def google_callback():
     email_verified = userinfo.get("email_verified", False)
     name = userinfo.get("name")
 
-    if not (email_verified and email and is_email_allowed(email)):
+    allowed, sections = check_access(email) if (email_verified and email) else (False, [])
+    if not allowed:
         return _no_access(email)
 
-    return _start_session(email, name, "google")
+    return _start_session(email, name, "google", sections)
 
 
 @bp.route("/login/microsoft", methods=["POST"])
@@ -273,10 +280,11 @@ def microsoft_callback():
             email = preferred
     name = userinfo.get("name")
 
-    if not (email and is_email_allowed(email)):
+    allowed, sections = check_access(email) if email else (False, [])
+    if not allowed:
         return _no_access(email)
 
-    return _start_session(email, name, "microsoft")
+    return _start_session(email, name, "microsoft", sections)
 
 
 @bp.route("/logout")

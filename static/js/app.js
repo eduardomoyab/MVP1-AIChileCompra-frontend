@@ -1422,7 +1422,7 @@ function downloadFichaPDF() {
       .filter(a => state.ficha[a]?.value != null)
       .map(a => {
         const v = state.ficha[a].value;
-        const display = v === true ? 'Sí' : v === false ? 'No' : escapeHtml(String(v));
+        const display = escapeHtml(formatAttrValue(v));
         return `<tr><td class="lbl">${escapeHtml(ATTRS[a]?.label ?? a)}</td><td class="val">${display}</td></tr>`;
       })
       .join('');

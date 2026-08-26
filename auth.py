@@ -83,7 +83,27 @@ def _validate_ms_issuer(claims, value):
     if not _MS_ISSUER_RE.match(value or ""):
         return False
     tenant_id = str(claims.get("tid") or "").strip().lower()
-    return bool(tenant_id) and tenant_id in _ms_allowed_tenant_ids()
+    if not tenant_id:
+        return False
+
+    # xms_edov ("Email Domain Owner Verified"): mitigación oficial de
+    # Microsoft para nOAuth -- https://learn.microsoft.com/entra/identity-platform/migrate-off-email-claim-authorization#using-the-xms_edov-optional-claim
+    # Solo viene en true si ESE tenant verificó por DNS que es dueño del
+    # dominio del correo (obligatorio para usarlo en Microsoft 365), así
+    # que reemplaza la lista manual: cualquier organización cliente
+    # (Chile Compra, Aminerals, la que sea) entra sola, sin tener que
+    # agregar su tenant ID acá cada vez que se suma un cliente nuevo.
+    # Requiere el claim opcional "xms_edov" activado en el App
+    # Registration de Azure (compartido con db-admin-panel, mismo
+    # client_id) -- si no está activado, el claim no llega y se sigue
+    # exigiendo la lista manual de MICROSOFT_ALLOWED_TENANT_IDS.
+    allowed = tenant_id in _ms_allowed_tenant_ids()
+    edov = str(claims.get("xms_edov")).lower() == "true"
+    current_app.logger.info(
+        "Microsoft login: tenant=%s en_lista_manual=%s xms_edov=%r",
+        tenant_id, allowed, claims.get("xms_edov"),
+    )
+    return allowed or edov
 
 
 def init_oauth(app):

@@ -86,6 +86,10 @@ def _require_login():
             session["email"] = os.getenv("LOCAL_DEV_EMAIL", "dev-local@localhost")
             session["name"] = "Dev Local"
             session["provider"] = "local-dev"
+            # Mismo criterio "fail-open solo en local" que ya aplica para
+            # sections (sin restricción) -- sin esto no habría forma de
+            # probar el panel de administrador en desarrollo local.
+            session["is_admin"] = True
             return None
         # Las llamadas del chat (fetch/SSE) no navegan la página -- si acá
         # se devuelve un redirect normal, el fetch lo sigue solo y termina
@@ -103,6 +107,7 @@ def _account_context():
         "user_name": session.get("name"),
         "user_email": session.get("email"),
         "user_provider": session.get("provider"),
+        "is_admin": bool(session.get("is_admin")),
     }
 
 
@@ -154,6 +159,14 @@ def medicamentos():
     return render_template("medicamentos.html", **_account_context())
 
 
+@app.route("/admin")
+def admin():
+    if not session.get("is_admin"):
+        flash("No tienes acceso al panel de administrador.", "error")
+        return redirect(url_for("index"))
+    return render_template("admin.html", **_account_context())
+
+
 # Solo estos sub-paths del backend son alcanzables a través del proxy --
 # el resto de /api/* del backend (ej. /api/auth/check_access, que solo
 # debe consultar el propio login del frontend, ver auth.py) NO debe quedar
@@ -161,8 +174,8 @@ def medicamentos():
 # primer segmento del path es lo que se valida (ej. "chat" de
 # "chat/<session_id>").
 _ALLOWED_PROXY_PREFIXES = {
-    "chat", "manual_update", "cm_offers", "offers", "track", "reset", "usage", "dropdowns",
-    "medicamentos",
+    "chat", "manual_update", "cm_offers", "offers", "price_methodology", "track", "usage", "dropdowns",
+    "medicamentos", "compare", "sessions", "admin",
 }
 
 
@@ -191,14 +204,35 @@ def proxy(path):
     }
     data = request.get_data()
 
+    # httpx.stream(...) como context manager cierra la conexión al salir
+    # del "with" -- que antes envolvía todo generate(), así que Flask nunca
+    # veía el status real del backend (r.status_code solo existe dentro del
+    # "with", y para cuando Flask arma el Response ya se había salido de
+    # él). Client.send(..., stream=True) deja la respuesta abierta explícitamente
+    # -- r.status_code ya está disponible ACÁ (las cabeceras ya llegaron,
+    # el cuerpo todavía no se consume) para pasárselo de verdad al Response
+    # de Flask, en vez de que este proxy devuelva siempre 200 aunque el
+    # backend haya respondido 403/404/lo que sea (bug real: rompía en
+    # silencio cualquier `resp.ok` del frontend contra un endpoint que no
+    # fuera puro SSE).
+    client = httpx.Client(timeout=120)
+    upstream = client.send(
+        client.build_request(request.method, url, content=data, headers=headers),
+        stream=True,
+    )
+
     def generate():
-        with httpx.stream(request.method, url, content=data, headers=headers, timeout=120) as r:
-            for chunk in r.iter_bytes():
+        try:
+            for chunk in upstream.iter_bytes():
                 yield chunk
+        finally:
+            upstream.close()
+            client.close()
 
     return Response(
         stream_with_context(generate()),
-        content_type="text/event-stream",
+        status=upstream.status_code,
+        content_type=upstream.headers.get("content-type", "text/event-stream"),
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
 

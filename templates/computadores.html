@@ -35,6 +35,11 @@
   <link rel="stylesheet" href="/static/css/style.css" />
   <style>
     @media (max-width: 1023px) { .mobile-hidden { display: none !important; } }
+    /* Colapso del sidebar de conversaciones en desktop (toggleSidebarCollapse()
+       en app.js) -- especificidad de ID le gana a la clase lg:w-64 de Tailwind
+       sin necesitar !important. */
+    #sessions-sidebar.sidebar-collapsed { width: 0; border-right-width: 0; }
+    #sessions-sidebar.sidebar-collapsed > * { display: none; }
   </style>
 </head>
 
@@ -64,8 +69,54 @@
       </button>
     </div>
 
+    <!-- ─── SIDEBAR DE CONVERSACIONES ───────────────────────────────
+         Columna persistente en desktop (colapsable con el botón del header),
+         drawer superpuesto anclado a la izquierda en mobile -- mismo
+         mecanismo que #compare-panel, espejado. -->
+    <div id="sessions-overlay" class="hidden fixed inset-0 z-40 lg:static lg:z-auto lg:flex lg:flex-shrink-0">
+      <div class="absolute inset-0 bg-slate-900/40 lg:hidden" onclick="closeSidebarMobile()"></div>
+      <aside id="sessions-sidebar"
+             class="absolute inset-y-0 left-0 w-72 max-w-[85vw] bg-white shadow-2xl flex flex-col overflow-hidden lg:static lg:shadow-none lg:border-r lg:border-slate-200 lg:w-64">
+        <div class="flex items-center justify-between gap-2 px-3 py-3 border-b border-slate-100 flex-shrink-0">
+          <p class="text-[12px] font-semibold text-slate-500 uppercase tracking-wide">Conversaciones</p>
+          <button onclick="closeSidebarMobile()" title="Cerrar"
+                  class="lg:hidden w-7 h-7 flex items-center justify-center rounded-lg text-slate-400 hover:bg-slate-100 cursor-pointer">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
+          </button>
+        </div>
+        <div class="px-3 pt-3 pb-2 flex-shrink-0">
+          <button onclick="startNewConversation()"
+                  class="w-full flex items-center justify-center gap-1.5 px-3 py-2 text-[13px] font-semibold text-white bg-brand-600 hover:bg-brand-700 rounded-lg transition-colors cursor-pointer">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/></svg>
+            Nueva conversación
+          </button>
+        </div>
+        <div id="sessions-list" class="flex-1 overflow-y-auto px-2 pb-3 space-y-0.5 scrollbar-thin">
+          <!-- Esqueleto -- visible de inmediato (markup estático, no espera
+               a JS ni al fetch) para que la lista no se vea vacía/trabada
+               mientras carga; _renderSessionsList() lo reemplaza al llegar
+               la respuesta real. -->
+          <div class="animate-pulse space-y-1.5 px-1 pt-1">
+            <div class="h-[46px] rounded-lg bg-slate-100"></div>
+            <div class="h-[46px] rounded-lg bg-slate-100"></div>
+            <div class="h-[46px] rounded-lg bg-slate-100"></div>
+          </div>
+        </div>
+      </aside>
+    </div>
+
     <!-- ─── PANEL CHAT ──────────────────────────────────────────── -->
-    <section id="panel-chat" class="flex-1 flex flex-col border-r border-slate-200 bg-white overflow-hidden lg:flex-none lg:w-[46%]">
+    <section id="panel-chat" class="relative flex-1 flex flex-col border-r border-slate-200 bg-white overflow-hidden lg:flex-none lg:w-[46%]">
+
+      <!-- Overlay al cambiar de conversación desde el sidebar -- sin esto,
+           la pantalla se queda en blanco unos segundos mientras
+           GET /api/sessions/{id} recalcula el precio, y se ve como si no
+           hubiera pasado nada (bug reportado). switchToSession() lo
+           muestra/oculta (ver app.js). -->
+      <div id="chat-switch-overlay" class="hidden absolute inset-0 z-30 bg-white/90 backdrop-blur-[1px] flex-col items-center justify-center gap-3">
+        <div class="ficha-spinner" style="width:26px;height:26px;border-width:3px;"></div>
+        <p class="text-[13px] text-slate-500 font-medium">Cargando conversación…</p>
+      </div>
 
       <!-- Chat header -->
       <div class="flex items-center gap-3 px-4 py-3 bg-gradient-to-r from-brand-800 to-brand-700 flex-shrink-0">
@@ -75,21 +126,46 @@
             <path d="M19.5 16l.9 2.6 2.6.6-2.6.9-.9 2.6-.9-2.6-2.6-.9 2.6-.6z" opacity="0.6"/>
           </svg>
         </div>
-        <div>
-          <p class="font-semibold text-[14px] text-white leading-tight">Asistente IA</p>
+        <div class="min-w-0">
+          <p id="active-session-title" class="font-semibold text-[14px] text-white leading-tight truncate">Nueva conversación</p>
           <div class="flex items-center gap-1.5 mt-0.5">
             <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 flex-shrink-0"></span>
             <p class="text-[11px] text-blue-200/80">Mercado Público</p>
           </div>
         </div>
-        <div class="ml-auto">
-          <button onclick="resetSession()" title="Nueva sesión"
-                  class="flex items-center gap-1.5 px-3 py-1.5 text-[12px] text-white/90 bg-white/10 hover:bg-white/20 rounded-lg transition-colors border border-white/15 cursor-pointer min-h-[36px]">
+        <div class="ml-auto flex items-center gap-2 flex-shrink-0">
+          <button onclick="openTutorial()" title="Ver tutorial"
+                  class="relative flex items-center gap-1.5 px-3 py-1.5 text-[12px] font-semibold text-brand-700 bg-white hover:bg-blue-50 rounded-lg transition-colors shadow-sm cursor-pointer min-h-[36px]">
             <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+              <path stroke-linecap="round" stroke-linejoin="round" d="M9.09 9a3 3 0 015.83 1c0 2-3 3-3 3M12 17h.01M12 21a9 9 0 100-18 9 9 0 000 18z"/>
             </svg>
-            Nueva sesión
+            Tutorial
+            <span id="tutorial-badge" class="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full bg-amber-400 border border-white animate-pulse"></span>
           </button>
+          <button onclick="openSidebarMobile()" title="Conversaciones"
+                  class="lg:hidden flex items-center justify-center w-9 h-9 text-white/90 bg-white/10 hover:bg-white/20 rounded-lg transition-colors border border-white/15 cursor-pointer">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16M4 18h16"/>
+            </svg>
+          </button>
+          <button onclick="toggleSidebarCollapse()" title="Mostrar/ocultar conversaciones"
+                  class="hidden lg:flex items-center justify-center w-9 h-9 text-white/90 bg-white/10 hover:bg-white/20 rounded-lg transition-colors border border-white/15 cursor-pointer">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16M4 18h16"/>
+            </svg>
+          </button>
+        </div>
+      </div>
+
+      <!-- Resumen "lo que ya sabemos" -- visible en el chat mismo (no solo en
+           la ficha lateral) para que quede claro que lo ya informado no se
+           pierde, aunque el usuario cambie de tema o el asistente pregunte
+           algo distinto en el próximo turno. -->
+      <div id="known-summary" class="hidden flex-shrink-0 flex items-start gap-2 px-4 py-2 bg-brand-50/70 border-b border-brand-100">
+        <svg class="w-3.5 h-3.5 text-brand-400 mt-1 flex-shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+        <div class="flex-1 min-w-0">
+          <p class="text-[10px] font-semibold text-brand-500 uppercase tracking-wide mb-1">Ya sabemos</p>
+          <div id="known-summary-chips" class="flex flex-wrap gap-1.5"></div>
         </div>
       </div>
 
@@ -159,7 +235,7 @@
                     rows="2"
                     placeholder="Describe el propósito o características que necesitas..."
                     class="flex-1 resize-none px-4 py-3 text-[14px] bg-slate-50 border border-slate-200 rounded-2xl focus:outline-none focus:ring-2 focus:ring-brand-400 focus:bg-white focus:border-transparent scrollbar-thin transition-all leading-relaxed"></textarea>
-          <button onclick="sendMessage()"
+          <button id="btn-send-message" onclick="sendMessage()"
                   class="w-10 h-10 flex items-center justify-center bg-brand-600 text-white rounded-xl hover:bg-brand-700 active:scale-95 transition-all flex-shrink-0 shadow-sm cursor-pointer">
             <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
               <line x1="22" y1="2" x2="11" y2="13"/>
@@ -174,7 +250,13 @@
 
 
     <!-- ─── PANEL FICHA ──────────────────────────────────────────── -->
-    <section id="panel-ficha" class="mobile-hidden flex-1 flex flex-col bg-slate-50 overflow-hidden">
+    <section id="panel-ficha" class="relative mobile-hidden flex-1 flex flex-col bg-slate-50 overflow-hidden">
+
+      <!-- Mismo overlay que #chat-switch-overlay, para el panel de ficha. -->
+      <div id="ficha-switch-overlay" class="hidden absolute inset-0 z-30 bg-slate-50/90 backdrop-blur-[1px] flex-col items-center justify-center gap-3">
+        <div class="ficha-spinner" style="width:26px;height:26px;border-width:3px;"></div>
+        <p class="text-[13px] text-slate-500 font-medium">Cargando conversación…</p>
+      </div>
 
       <!-- Ficha header -->
       <div class="flex items-center gap-3 px-4 lg:px-5 py-3 bg-white border-b border-slate-200 flex-shrink-0 shadow-sm">
@@ -194,7 +276,7 @@
             <span class="px-1.5 py-0.5 text-[10px] bg-emerald-50 text-emerald-600 rounded border border-emerald-200 font-medium">Tú</span>
             <span class="px-1.5 py-0.5 text-[10px] bg-amber-50 text-amber-600 rounded border border-amber-200 font-medium">Auto</span>
           </div>
-          <button onclick="downloadFichaPDF()" title="Descargar ficha como PDF"
+          <button id="btn-download-pdf" onclick="downloadFichaPDF()" title="Descargar ficha como PDF"
                   class="flex items-center gap-1.5 px-3 py-1.5 text-[12px] font-medium text-brand-700 bg-brand-50 border border-brand-200 rounded-lg hover:bg-brand-100 transition-colors cursor-pointer min-h-[34px]">
             <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
               <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/>
@@ -214,6 +296,7 @@
           </div>
           <span id="progress-label" class="text-[11px] text-slate-400 flex-shrink-0 font-medium tabular-nums">0/8 completados</span>
         </div>
+        <p id="progress-missing" class="hidden text-[10.5px] text-slate-400 mt-1 truncate">Falta: </p>
       </div>
 
       <!-- Indicador de carga ficha -->
@@ -251,7 +334,7 @@
                   </svg>
                 </span>
                 <span class="text-[11px] font-semibold text-slate-600 uppercase tracking-wider">General</span>
-                <span class="text-[10px] text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded-md font-medium" id="section-count-general">0/3</span>
+                <span class="text-[10px] text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded-md font-medium" id="section-count-general">0/1</span>
               </div>
               <svg id="section-chevron-general" class="section-chevron open w-4 h-4 text-slate-400 transition-transform" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
                 <polyline points="18 15 12 9 6 15"/>
@@ -275,24 +358,6 @@
                   <div class="attr-edit-wrap hidden w-full"></div>
                 </div>
               </div>
-
-              <div class="attr-row group py-2.5 px-3 rounded-lg hover:bg-slate-50/80 flex items-start gap-2 transition-colors cursor-default" id="attr-marca" data-attr="marca" data-type="dict">
-                <div class="min-w-[148px] max-w-[148px] flex-shrink-0 pt-0.5">
-                  <p class="text-[12px] font-medium text-slate-500 leading-tight">Marca</p>
-                  <p class="attr-trigger text-[11px] text-amber-600 mt-0.5 hidden"></p>
-                </div>
-                <div class="attr-value-col flex-1 min-h-[28px]">
-                  <div class="attr-display-wrap flex items-center gap-1.5">
-                    <span class="attr-value text-[13px] text-slate-300 italic">sin valor</span>
-                    <span class="attr-badge hidden"></span>
-                    <button class="attr-edit-btn ml-auto p-1.5 text-brand-500 hover:text-brand-600 opacity-70 group-hover:opacity-100 transition-all cursor-pointer rounded-md hover:bg-brand-50" onclick="startEdit('marca')" aria-label="Editar marca">
-                      <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-                    </button>
-                  </div>
-                  <div class="attr-edit-wrap hidden w-full"></div>
-                </div>
-              </div>
-
 
             </div>
           </div>
@@ -584,7 +649,7 @@
             </div>
           </div>
 
-          <!-- ── Pantalla y Sistema ── -->
+          <!-- ── Otros (opcional): marca, pantalla, SO, Wi-Fi ── -->
           <div class="ficha-section bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm" id="section-pantalla">
             <button class="section-toggle w-full flex items-center justify-between px-4 py-3 hover:bg-slate-50 transition-colors cursor-pointer" onclick="toggleSection('pantalla')">
               <div class="flex items-center gap-2.5">
@@ -593,14 +658,32 @@
                     <rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/>
                   </svg>
                 </span>
-                <span class="text-[11px] font-semibold text-slate-600 uppercase tracking-wider">Pantalla y Sistema</span>
-                <span class="text-[10px] text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded-md font-medium" id="section-count-pantalla">0/3</span>
+                <span class="text-[11px] font-semibold text-slate-600 uppercase tracking-wider">Otros (opcional)</span>
+                <span class="text-[10px] text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded-md font-medium" id="section-count-pantalla">0/4</span>
               </div>
               <svg id="section-chevron-pantalla" class="section-chevron open w-4 h-4 text-slate-400 transition-transform" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
                 <polyline points="18 15 12 9 6 15"/>
               </svg>
             </button>
+            <p class="px-4 pb-2 -mt-1 text-[11px] text-slate-400 leading-snug">No son necesarios para una especificación técnica válida — ChileCompra recomienda evaluar por rendimiento y no sesgar la decisión por marca. Complétalos solo si es una preferencia explícita del organismo.</p>
             <div id="section-body-pantalla" class="divide-y divide-slate-50 px-2 pb-1.5">
+
+              <div class="attr-row group py-2.5 px-3 rounded-lg hover:bg-slate-50/80 flex items-start gap-2 transition-colors cursor-default" id="attr-marca" data-attr="marca" data-type="dict">
+                <div class="min-w-[148px] max-w-[148px] flex-shrink-0 pt-0.5">
+                  <p class="text-[12px] font-medium text-slate-500 leading-tight">Marca</p>
+                  <p class="attr-trigger text-[11px] text-amber-600 mt-0.5 hidden"></p>
+                </div>
+                <div class="attr-value-col flex-1 min-h-[28px]">
+                  <div class="attr-display-wrap flex items-center gap-1.5">
+                    <span class="attr-value text-[13px] text-slate-300 italic">sin valor</span>
+                    <span class="attr-badge hidden"></span>
+                    <button class="attr-edit-btn ml-auto p-1.5 text-brand-500 hover:text-brand-600 opacity-70 group-hover:opacity-100 transition-all cursor-pointer rounded-md hover:bg-brand-50" onclick="startEdit('marca')" aria-label="Editar marca">
+                      <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                    </button>
+                  </div>
+                  <div class="attr-edit-wrap hidden w-full"></div>
+                </div>
+              </div>
 
               <div class="attr-row group py-2.5 px-3 rounded-lg hover:bg-slate-50/80 flex items-start gap-2 transition-colors cursor-default" id="attr-pantalla_pulgadas" data-attr="pantalla_pulgadas" data-type="numeric">
                 <div class="min-w-[148px] max-w-[148px] flex-shrink-0 pt-0.5">
@@ -665,6 +748,68 @@
     </section><!-- /ficha panel -->
 
   </main>
+
+  <!-- ─── Barra flotante del comparador de candidatos ───────────────── -->
+  <!-- Siempre visible (antes se ocultaba en 0 -- eso generaba una
+       contradicción real: si el usuario ya tenía una selección guardada de
+       una sesión anterior, la barra reaparecía con datos "de la nada" en
+       vez de estar siempre ahí como referencia). Vacía se ve gris/apagada;
+       con candidatos, azul institucional. -->
+  <div id="compare-bar" class="fixed bottom-5 left-1/2 -translate-x-1/2 z-30">
+    <button id="compare-bar-btn" onclick="openCompareModal()" title="Comparar equipos marcados"
+            class="flex items-center gap-2.5 pl-4 pr-5 py-3 text-white rounded-full shadow-lg transition-colors bg-slate-400 hover:bg-slate-500 shadow-slate-900/10">
+      <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 17V7m6 10V7M5 21h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v14a2 2 0 002 2z"/></svg>
+      <span class="text-[13.5px] font-semibold">Comparar (<span id="compare-count">0/10</span>)</span>
+    </button>
+  </div>
+
+  <!-- ─── Panel lateral del comparador de candidatos ─────────────────── -->
+  <!-- Antes era un modal centrado con una sola tabla mezclando Convenio
+       Marco y Compra Ágil. Ahora es un panel anclado al borde derecho
+       (mismo lenguaje visual que la vista previa de documento de
+       Medicamentos: card blanca, header propio, cuerpo con scroll aparte)
+       con 2 vistas conmutables sin cerrar el panel: "Selección" (drawer
+       angosto, candidatos agrupados por mecanismo, sin tabla todavía) y
+       "Comparativa" (el panel se expande a casi toda la pantalla, tabla
+       invertida -- producto por fila -- con una pestaña por mecanismo para
+       no mezclarlos). Ver _renderCompareSelectionView()/
+       _renderCompareMatrixView() en app.js. -->
+  <div id="compare-panel" class="hidden fixed inset-0 z-40">
+    <div class="absolute inset-0 bg-slate-900/40" onclick="closeCompareModal()"></div>
+    <div id="compare-panel-sheet" class="absolute inset-y-0 right-0 w-full max-w-md bg-white shadow-2xl flex flex-col overflow-hidden transition-[max-width] duration-200">
+      <div class="px-5 pt-4 pb-3 border-b border-slate-100 flex-shrink-0">
+        <div class="flex items-center justify-between gap-2 mb-3">
+          <h2 class="text-[15px] font-semibold text-slate-800">Comparar candidatos</h2>
+          <button onclick="closeCompareModal()" class="w-8 h-8 flex-shrink-0 flex items-center justify-center rounded-lg text-slate-400 hover:bg-slate-100">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
+          </button>
+        </div>
+        <div id="compare-view-tabs" class="flex items-center gap-1 bg-slate-100 rounded-lg p-1"></div>
+      </div>
+      <div id="compare-modal-body" class="flex-1 overflow-auto px-5 py-4"></div>
+    </div>
+  </div>
+
+  <!-- ─── Tutorial interactivo (spotlight sobre la app real) ─────────────
+       No es un modal que solo explica -- resalta el elemento real de cada
+       paso (input del chat, fila de la ficha, botón de comparar, botón de
+       PDF) y espera a que el usuario haga la acción real (escribir y
+       enviar, tocar una fila, marcar comparar, descargar) antes de avanzar
+       -- ver TOUR_STEPS/_tourNotify() en app.js. -->
+  <div id="tour-tooltip" class="hidden fixed z-[1001] w-[290px] max-w-[88vw] bg-white rounded-2xl shadow-2xl p-4">
+    <div class="flex items-start justify-between gap-2 mb-1">
+      <p id="tour-step-label" class="text-[10px] font-semibold uppercase tracking-wide text-brand-500"></p>
+      <button onclick="skipTutorial()" title="Saltar tutorial" class="text-slate-300 hover:text-slate-500 flex-shrink-0 -mt-1 -mr-1 w-6 h-6 flex items-center justify-center">
+        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
+      </button>
+    </div>
+    <h3 id="tour-title" class="text-[14.5px] font-semibold text-slate-800 mb-1"></h3>
+    <p id="tour-body" class="text-[12.5px] text-slate-500 leading-relaxed mb-3"></p>
+    <div class="flex items-center justify-between">
+      <button onclick="skipTutorial()" class="text-[11px] font-medium text-slate-400 hover:text-slate-600">Saltar tutorial</button>
+      <button id="tour-next" onclick="tourManualAdvance()" class="text-[11.5px] font-semibold text-brand-600 hover:text-brand-700">Siguiente →</button>
+    </div>
+  </div>
 
   {% include "_session_modal.html" %}
 

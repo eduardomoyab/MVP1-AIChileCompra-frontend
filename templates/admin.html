@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Panel de administrador · Asistente IA</title>
+  <link rel="icon" href="/static/favicon.ico" type="image/x-icon">
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,300;0,400;0,500;0,600;0,700;1,400&display=swap" rel="stylesheet">
+
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            brand: {
+              50:  '#e8f0fb',
+              100: '#c5d8f5',
+              200: '#9bbdee',
+              500: '#1e6cc5',
+              600: '#154f96',
+              700: '#0f3d78',
+              800: '#0a2d5e',
+              900: '#061e42',
+            }
+          }
+        }
+      }
+    }
+  </script>
+
+  <link rel="stylesheet" href="/static/css/style.css" />
+</head>
+
+<body class="h-screen flex flex-col bg-slate-100 overflow-hidden">
+
+  {% include "_header.html" %}
+
+  <main class="flex-1 overflow-y-auto">
+    <div class="max-w-5xl mx-auto w-full px-4 lg:px-6 py-8 space-y-6">
+
+      <div>
+        <h1 class="text-xl font-semibold text-slate-800">Panel de administrador</h1>
+        <p class="text-[13px] text-slate-500 mt-0.5">
+          Grupos, usuarios, tope diario de tokens y accesos a módulos de Compra Ágil (mvp1-compra-agil).
+          Administra los mismos datos que <span class="font-medium text-slate-600">db-admin-panel</span> — un cambio hecho acá se ve reflejado allá y viceversa.
+        </p>
+      </div>
+
+      <!-- Tabs -->
+      <div class="flex items-center gap-1.5 border-b border-slate-200">
+        <button id="admin-tabbtn-users" onclick="switchAdminTab('users')"
+                class="px-4 py-2.5 text-[13px] font-semibold border-b-2 cursor-pointer transition-colors">
+          Usuarios
+        </button>
+        <button id="admin-tabbtn-groups" onclick="switchAdminTab('groups')"
+                class="px-4 py-2.5 text-[13px] font-semibold border-b-2 cursor-pointer transition-colors">
+          Grupos
+        </button>
+        <button id="admin-tabbtn-sections" onclick="switchAdminTab('sections')"
+                class="px-4 py-2.5 text-[13px] font-semibold border-b-2 cursor-pointer transition-colors">
+          Módulos
+        </button>
+      </div>
+
+      <div id="admin-error" class="hidden bg-rose-50 border border-rose-200 text-rose-700 text-[13px] rounded-lg px-4 py-3"></div>
+
+      <!-- ── Usuarios ──────────────────────────────────────────── -->
+      <div id="admin-tab-users">
+        <div class="bg-white border border-slate-200 rounded-xl shadow-sm p-4 mb-4">
+          <p class="text-[12px] font-semibold text-slate-500 uppercase tracking-wide mb-2.5">Agregar usuario</p>
+          <form id="admin-add-user-form" onsubmit="return adminSubmitAddUser(event)" class="flex flex-wrap items-end gap-2.5">
+            <div class="flex-1 min-w-[220px]">
+              <label class="block text-[11px] text-slate-400 mb-1">Correo</label>
+              <input type="email" id="admin-new-user-email" required placeholder="nombre@dominio.cl"
+                     class="w-full px-3 py-2 text-[13px] border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-brand-400">
+            </div>
+            <div>
+              <label class="block text-[11px] text-slate-400 mb-1">Tope diario (tokens)</label>
+              <input type="number" id="admin-new-user-limit" min="0" placeholder="default"
+                     class="w-28 px-3 py-2 text-[13px] border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-brand-400">
+            </div>
+            <label class="flex items-center gap-1.5 text-[12.5px] text-slate-500 pb-2.5 cursor-pointer">
+              <input type="checkbox" id="admin-new-user-unlimited" class="rounded"> Ilimitado
+            </label>
+            <button type="submit" class="px-4 py-2 text-[13px] font-semibold text-white bg-brand-600 hover:bg-brand-700 rounded-lg cursor-pointer">
+              + Agregar
+            </button>
+          </form>
+        </div>
+
+        <div class="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
+          <div class="overflow-x-auto">
+            <table class="w-full text-[13px]">
+              <thead>
+                <tr class="border-b border-slate-100 text-left text-[11px] text-slate-400 uppercase tracking-wide">
+                  <th class="px-4 py-2.5 font-semibold">Correo</th>
+                  <th class="px-4 py-2.5 font-semibold">Grupo</th>
+                  <th class="px-4 py-2.5 font-semibold">Tope diario</th>
+                  <th class="px-4 py-2.5 font-semibold">Uso de hoy</th>
+                  <th class="px-4 py-2.5 font-semibold">Módulos</th>
+                  <th class="px-4 py-2.5 font-semibold"></th>
+                </tr>
+              </thead>
+              <tbody id="admin-users-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── Grupos ───────────────────────────────────────────── -->
+      <div id="admin-tab-groups" class="hidden">
+        <div class="bg-white border border-slate-200 rounded-xl shadow-sm p-4 mb-4">
+          <p class="text-[12px] font-semibold text-slate-500 uppercase tracking-wide mb-2.5">Nuevo grupo</p>
+          <form id="admin-add-group-form" onsubmit="return adminSubmitAddGroup(event)" class="flex flex-wrap items-end gap-2.5">
+            <div class="flex-1 min-w-[220px]">
+              <label class="block text-[11px] text-slate-400 mb-1">Nombre</label>
+              <input type="text" id="admin-new-group-name" required placeholder="Nombre del grupo"
+                     class="w-full px-3 py-2 text-[13px] border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-brand-400">
+            </div>
+            <div>
+              <label class="block text-[11px] text-slate-400 mb-1">Tope diario (tokens)</label>
+              <input type="number" id="admin-new-group-limit" min="0" placeholder="default"
+                     class="w-28 px-3 py-2 text-[13px] border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-brand-400">
+            </div>
+            <label class="flex items-center gap-1.5 text-[12.5px] text-slate-500 pb-2.5 cursor-pointer">
+              <input type="checkbox" id="admin-new-group-unlimited" class="rounded"> Ilimitado
+            </label>
+            <button type="submit" class="px-4 py-2 text-[13px] font-semibold text-white bg-brand-600 hover:bg-brand-700 rounded-lg cursor-pointer">
+              + Crear grupo
+            </button>
+          </form>
+        </div>
+
+        <div id="admin-groups-list" class="space-y-4"></div>
+      </div>
+
+      <!-- ── Módulos ──────────────────────────────────────────── -->
+      <div id="admin-tab-sections" class="hidden">
+        <div class="bg-white border border-slate-200 rounded-xl shadow-sm p-4 mb-4">
+          <p class="text-[12px] font-semibold text-slate-500 uppercase tracking-wide mb-2.5">Nuevo módulo</p>
+          <form id="admin-add-section-form" onsubmit="return adminSubmitAddSection(event)" class="flex flex-wrap items-end gap-2.5">
+            <div>
+              <label class="block text-[11px] text-slate-400 mb-1">Slug</label>
+              <input type="text" id="admin-new-section-slug" required placeholder="ej: computadores"
+                     class="w-48 px-3 py-2 text-[13px] border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-brand-400">
+            </div>
+            <div class="flex-1 min-w-[200px]">
+              <label class="block text-[11px] text-slate-400 mb-1">Nombre</label>
+              <input type="text" id="admin-new-section-nombre" required placeholder="ej: Computadores"
+                     class="w-full px-3 py-2 text-[13px] border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-brand-400">
+            </div>
+            <button type="submit" class="px-4 py-2 text-[13px] font-semibold text-white bg-brand-600 hover:bg-brand-700 rounded-lg cursor-pointer">
+              + Crear módulo
+            </button>
+          </form>
+        </div>
+
+        <div class="bg-white border border-slate-200 rounded-xl shadow-sm divide-y divide-slate-100" id="admin-sections-list"></div>
+      </div>
+
+    </div>
+  </main>
+
+  {% include "_session_modal.html" %}
+
+  <script src="/static/js/shell.js"></script>
+  <script src="/static/js/admin.js"></script>
+</body>
+</html>

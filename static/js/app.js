@@ -2,28 +2,41 @@
    Asistente Compra Ágil — app.js
    ═══════════════════════════════════════════════════════════════ */
 
-const SESSION_ID = crypto.randomUUID();
+// El session_id identifica la conversación activa. A propósito NO se
+// recupera de localStorage al cargar la página -- por defecto siempre se
+// arranca en una conversación nueva en blanco (como pide el diseño del
+// sidebar: "siempre se muestra el chat vacío para crear uno nuevo"), nunca
+// reabriendo automáticamente la última en la que se quedó el usuario. Para
+// retomar una conversación anterior hay que elegirla del sidebar (ver
+// switchToSession() más abajo), que sí reasigna SESSION_ID sin recargar.
+const _SESSION_ID_KEY = 'compra_agil_session_id';
+let SESSION_ID = crypto.randomUUID();
+
+function _setSessionId(id) {
+  SESSION_ID = id;
+  try { localStorage.setItem(_SESSION_ID_KEY, id); } catch (e) { /* modo privado, etc. */ }
+}
 
 // ── Atributos ────────────────────────────────────────────────────
 const ATTRS = {
   tipo_equipo:                  { label: 'Tipo de equipo',       type: 'enum',    values: ['Laptop','AIO','Desktop','Otro'] },
-  marca:                        { label: 'Marca',                type: 'dict' },
-  procesador_principal:         { label: 'Procesador',           type: 'dict' },
-  linea_procesador:             { label: 'Línea procesador',     type: 'free' },
+  procesador_principal:         { label: 'Procesador',           type: 'dict', example: 'Intel Core i7-1355U' },
+  linea_procesador:             { label: 'Línea procesador',     type: 'free', example: 'Intel Core i5' },
   nucleos_procesador:           { label: 'Núcleos',              type: 'numeric', readOnly: true },
   hilos_procesador:             { label: 'Hilos',                type: 'numeric', readOnly: true },
   frecuencia_turbo_procesador_mhz: { label: 'Frec. Turbo (MHz)', type: 'numeric', readOnly: true },
-  total_ram_gb:                 { label: 'RAM (GB)',              type: 'numeric' },
+  total_ram_gb:                 { label: 'RAM (GB)',              type: 'numeric', example: '16' },
   tecnologia_ram:               { label: 'Tecnología RAM',       type: 'enum',    values: ['DDR5','DDR4','LPDDR5X','LPDDR5','LPDDR4X','LPDDR4','DDR3'] },
   frecuencia_ram_mhz:           { label: 'Frec. RAM (MHz)',      type: 'numeric', readOnly: true },
-  total_almacenamiento_gb:      { label: 'Almacenamiento (GB)',  type: 'numeric' },
+  total_almacenamiento_gb:      { label: 'Almacenamiento (GB)',  type: 'numeric', example: '512' },
   tecnologia_disco_principal:   { label: 'Tecnología disco',     type: 'enum',    values: ['NVMe SSD','SATA SSD','SSD','HDD','eMMC','mSATA'] },
   tipo_configuracion_discos:    { label: 'Config. discos',       type: 'enum',    values: ['solo SSD','SSD+HDD','solo HDD','otro'] },
   tiene_gpu_dedicada:           { label: 'GPU dedicada',         type: 'boolean' },
-  gpu_dedicada_nombre:          { label: 'Nombre GPU',           type: 'dict' },
+  gpu_dedicada_nombre:          { label: 'Nombre GPU',           type: 'dict', example: 'NVIDIA RTX 4050' },
   total_vram_gpu_gb:            { label: 'VRAM (GB)',            type: 'numeric', readOnly: true },
-  pantalla_pulgadas:            { label: 'Pantalla (pulgadas)',  type: 'numeric' },
-  sistema_operativo:            { label: 'Sistema operativo',    type: 'dict' },
+  marca:                        { label: 'Marca',                type: 'dict', example: 'HP, Lenovo, Dell...' },
+  pantalla_pulgadas:            { label: 'Pantalla (pulgadas)',  type: 'numeric', example: '15.6' },
+  sistema_operativo:            { label: 'Sistema operativo',    type: 'dict', example: 'Windows 11 Pro' },
   wifi_generacion:              { label: 'Wi-Fi',               type: 'enum',    values: ['Wi-Fi 7','Wi-Fi 6E','Wi-Fi 6','Wi-Fi 5','Wi-Fi 4'] },
 };
 
@@ -33,6 +46,8 @@ const CORE_ATTRS = [
 ];
 
 // ── Estado ──────────────────────────────────────────────────────
+const MAX_COMPARE = 10;
+
 const state = {
   ficha: {},
   priceData: null,
@@ -40,6 +55,9 @@ const state = {
   cmPriceData: null,
   cmPriceLoading: false,
   activePriceTab: 'cm',
+  compareItems: [],   // candidatos marcados para comparar (máx MAX_COMPARE)
+  offerPriceFilter: { min: null, max: null },   // filtro de precio -- pestaña Compra Ágil
+  cmOfferPriceFilter: { min: null, max: null }, // filtro de precio -- pestaña Convenio Marco
   sending: false,
   isTyping: false,
   streamingBubble: null,
@@ -71,6 +89,7 @@ function handleServerMessage(data) {
       state.streamingBubble = null;
       hideFichaLoading();
       fetchUsage();
+      _tourNotify('assistant_done');
       break;
 
     case 'ficha_update':
@@ -90,12 +109,15 @@ function handleServerMessage(data) {
     case 'price_update':
       state.priceData = data.data;
       state.priceLoading = false;
+      state.offerPriceFilter = { min: null, max: null };
       _offersData = [];
       _offersFetched = false;
       _offersSort = 'fecha_desc';
       _offersGroup = 'none';
       _offersExpanded = new Set();
       _offersGroupKeys = [];
+      _methodologyData = null;
+      _methodologyFetched = false;
       ensurePriceShell();
       renderPriceEstimate(data.data);
       maybeStopPriceLoadingAnim();
@@ -112,6 +134,7 @@ function handleServerMessage(data) {
     case 'cm_price_update':
       state.cmPriceData = data.data;
       state.cmPriceLoading = false;
+      state.cmOfferPriceFilter = { min: null, max: null };
       _cmOffersData = [];
       _cmOffersFetched = false;
       ensurePriceShell();
@@ -124,13 +147,22 @@ function handleServerMessage(data) {
       state.cmPriceLoading = false;
       ensurePriceShell();
       document.getElementById('price-panel-cm').innerHTML = cmPriceNotFoundHtml();
+      // Sin match en Convenio Marco (la vista por defecto) -> pasa solo a
+      // Compra Ágil automáticamente, sin que el usuario tenga que ir a
+      // buscarlo -- pero solo si no había elegido la vista a mano todavía.
+      if (state.activePriceTab === 'cm') switchPriceTab('ca');
       maybeStopPriceLoadingAnim();
       break;
 
     case 'blocked':
+      // Antes: cartel fijo ámbar de "Consulta fuera del ámbito" que
+      // cortaba la conversación. Ahora data.message es una respuesta
+      // conversacional real (la escribe el propio clasificador guardrail)
+      // -- se muestra como un turno normal del chat, el usuario sigue
+      // adelante sin perder nada de lo que ya tenía.
       hideTyping();
       state.streamingBubble = null;
-      appendBlockedMessage(data.message);
+      appendMessage('assistant', data.message);
       break;
 
     case 'usage_limit_reached':
@@ -175,27 +207,6 @@ function appendMessage(role, content) {
   const emptyState = document.getElementById('chat-empty');
   if (emptyState) emptyState.style.display = 'none';
 
-  container.appendChild(wrap);
-  container.scrollTop = container.scrollHeight;
-}
-
-function appendBlockedMessage(reason) {
-  const container = document.getElementById('chat-messages');
-  const wrap = document.createElement('div');
-  wrap.className = 'flex gap-3 justify-start animate-in';
-  wrap.innerHTML = `
-    <div class="w-9 h-9 rounded-full bg-amber-100 border border-amber-200 flex items-center justify-center flex-shrink-0 mt-1">
-      <svg class="w-4 h-4 text-amber-600" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-        <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v4m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/>
-      </svg>
-    </div>
-    <div class="max-w-[82%] px-4 py-3 text-[14px] leading-relaxed bg-amber-50 border border-amber-200 rounded-2xl rounded-tl-sm">
-      <p class="font-semibold text-amber-800 mb-1">Consulta fuera del ámbito</p>
-      <p class="text-amber-700 text-[13px]">Este asistente está diseñado exclusivamente para ayudarte a especificar equipos computacionales en Compra Ágil.</p>
-      ${reason ? `<p class="text-amber-600 text-[12px] mt-1.5 italic">${escapeHtml(reason)}</p>` : ''}
-    </div>`;
-  const emptyState = document.getElementById('chat-empty');
-  if (emptyState) emptyState.style.display = 'none';
   container.appendChild(wrap);
   container.scrollTop = container.scrollHeight;
 }
@@ -285,6 +296,7 @@ async function sendMessage() {
   const content = input.value.trim();
   if (!content || state.sending) return;
 
+  _tourNotify('send');
   state.sending = true;
   appendMessage('user', content);
   input.value = '';
@@ -306,6 +318,7 @@ async function sendMessage() {
       return;
     }
     await readSSEStream(res, handleServerMessage);
+    refreshSidebarAfterTurn();
   } catch (err) {
     hideTyping();
     state.streamingBubble = null;
@@ -383,13 +396,72 @@ function applyFichaUpdate(update) {
   row.classList.add('field-flash');
 }
 
+// Restaura TODO lo de una conversación guardada bajo este session_id --
+// ficha, mensajes del chat, carrito de comparación y precio estimado
+// (Compra Ágil y Convenio Marco) -- vía GET /api/sessions/{id}, que
+// recalcula el precio en caliente server-side (ver chat_session_service.py)
+// y trae todo junto. Se llama solo al elegir una conversación anterior
+// desde el sidebar (switchToSession()) -- la carga inicial de la página
+// NUNCA la llama, arranca siempre en blanco a propósito (ver SESSION_ID
+// más arriba). Si el session_id es nuevo (conversación nunca guardada), el
+// backend devuelve 404 y acá simplemente se deja la UI en blanco -- no es
+// un error. El origen (IA/Tú/Auto) de cada valor de ficha no se guarda
+// server-side, así que las insignias de origen no se muestran para
+// valores restaurados -- applyFichaUpdate ya maneja bien un `source` ausente.
+async function loadActiveSession() {
+  try {
+    const resp = await apiFetch(`/api/sessions/${SESSION_ID}`, { headers: _headers() });
+    if (!resp || !resp.ok) return;
+    const data = await resp.json();
+
+    Object.entries(data.ficha || {}).forEach(([attribute, value]) => {
+      if (value == null) return;
+      applyFichaUpdate({ attribute, value });
+    });
+    updateProgress();
+
+    (data.messages || []).forEach(m => appendMessage(m.role, m.content));
+
+    if (data.ficha && data.ficha.tipo_equipo) {
+      handleServerMessage(data.price_data
+        ? { type: 'price_update', data: data.price_data }
+        : { type: 'price_not_found' });
+      handleServerMessage(data.cm_price_data
+        ? { type: 'cm_price_update', data: data.cm_price_data }
+        : { type: 'cm_price_not_found' });
+    }
+
+    if (Array.isArray(data.compare_items) && data.compare_items.length) {
+      state.compareItems = data.compare_items;
+      renderCompareBar();
+    }
+
+    _setActiveSessionTitle(data.title);
+  } catch (e) { /* silencioso -- si falla, la conversación simplemente arranca vacía */ }
+}
+
 function updateProgress() {
   const filledCore = CORE_ATTRS.filter(a => state.ficha[a]?.value != null).length;
+  const missing = CORE_ATTRS.filter(a => state.ficha[a]?.value == null);
   const pct = Math.round((filledCore / CORE_ATTRS.length) * 100);
   const bar = document.getElementById('progress-bar');
   const label = document.getElementById('progress-label');
+  const missingEl = document.getElementById('progress-missing');
   if (bar) bar.style.width = `${pct}%`;
-  if (label) label.textContent = `${filledCore}/${CORE_ATTRS.length} completados`;
+  if (label) {
+    label.textContent = `${filledCore}/${CORE_ATTRS.length} completados`;
+    label.title = missing.length
+      ? `Falta: ${missing.map(a => ATTRS[a]?.label ?? a).join(', ')}`
+      : 'Ficha completa';
+  }
+  if (missingEl) {
+    if (missing.length) {
+      missingEl.textContent = `Falta: ${missing.map(a => ATTRS[a]?.label ?? a).join(', ')}`;
+      missingEl.classList.remove('hidden');
+    } else {
+      missingEl.classList.add('hidden');
+    }
+  }
 
   document.querySelectorAll('.ficha-section').forEach(sec => {
     const sId = sec.id.replace('section-', '');
@@ -398,6 +470,28 @@ function updateProgress() {
     const counter = document.getElementById(`section-count-${sId}`);
     if (counter) counter.textContent = `${filledInSection}/${rows.length}`;
   });
+
+  renderKnownSummary();
+}
+
+// ── Resumen "lo que ya sabemos" (visible en el chat, no solo en la ficha) ──
+function renderKnownSummary() {
+  const wrap = document.getElementById('known-summary');
+  const chipsEl = document.getElementById('known-summary-chips');
+  if (!wrap || !chipsEl) return;
+
+  const filled = Object.entries(state.ficha).filter(([, v]) => v?.value != null);
+  if (!filled.length) {
+    wrap.classList.add('hidden');
+    return;
+  }
+
+  chipsEl.innerHTML = filled.map(([attr, v]) => `
+    <span class="inline-flex items-center gap-1 bg-white border border-brand-200 text-[11px] text-slate-600 px-2 py-0.5 rounded-full">
+      <span class="text-slate-400">${escapeHtml(ATTRS[attr]?.label ?? attr)}:</span>
+      <span class="font-semibold text-slate-700">${escapeHtml(formatAttrValue(v.value))}</span>
+    </span>`).join('');
+  wrap.classList.remove('hidden');
 }
 
 // ── Edición manual de atributo ────────────────────────────────────
@@ -477,6 +571,22 @@ function startEdit(attr) {
       selectedValues = [String(currentVal)];
     }
 
+    // Opciones del autocompletado -- por default la lista global cacheada,
+    // pero para Procesador se reemplaza por una lista acotada a la marca
+    // del equipo ya elegida (evita ofrecer, ej., procesadores AMD/Intel
+    // para un equipo Apple -- bug real reportado). No se muta `dropdowns`
+    // global: eso ensuciaría la lista para otras fichas/sesiones.
+    let effectiveOptions = dropdowns[attr] || [];
+    const marcaActual = state.ficha.marca?.value;
+    if (attr === 'procesador_principal' && marcaActual && !Array.isArray(marcaActual)) {
+      apiFetch(`/api/dropdowns/filtered?field=${attr}&marca=${encodeURIComponent(marcaActual)}`, { headers: _headers() })
+        .then(resp => resp && resp.ok ? resp.json() : null)
+        .then(data => {
+          if (data && data.values && data.values.length) effectiveOptions = data.values;
+        })
+        .catch(() => {});
+    }
+
     // ── Pills ─────────────────────────────────────────────────────
     const pillsRow = document.createElement('div');
     pillsRow.className = `flex flex-wrap gap-1 min-h-[4px] ${isRangeInit ? 'hidden' : ''}`;
@@ -508,7 +618,7 @@ function startEdit(attr) {
     input.type = 'text';
     input.value = '';
     input.className = 'w-full text-[13px] px-3 py-1.5 border border-brand-400 rounded-lg focus:outline-none focus:ring-1 focus:ring-brand-400';
-    input.placeholder = `Añadir ${meta.label.toLowerCase()}...`;
+    input.placeholder = meta.example ? `Ej: ${meta.example}` : `Añadir ${meta.label.toLowerCase()}...`;
 
     const acList = document.createElement('div');
     acList.className = 'fixed z-[9999] bg-white border border-slate-200 rounded-lg shadow-lg overflow-y-auto hidden';
@@ -544,7 +654,7 @@ function startEdit(attr) {
 
     function renderAc(query) {
       const q = query.trim().toLowerCase();
-      const opts = dropdowns[attr] || [];
+      const opts = effectiveOptions;
       acItems = q ? opts.filter(v => v.toLowerCase().includes(q)).slice(0, 10) : opts.slice(0, 10);
       acIdx = -1; acList.innerHTML = '';
       if (!acItems.length) { acList.classList.add('hidden'); return; }
@@ -664,8 +774,11 @@ function startEdit(attr) {
     }
 
     const okBtn = document.createElement('button');
-    okBtn.className = 'p-1 text-emerald-600 hover:text-emerald-700';
-    okBtn.innerHTML = '✓';
+    // Antes era un ícono chico sin fondo (✓) -- pasaba desapercibido al
+    // agregar un valor desde el dropdown (bug real reportado). Mismo estilo
+    // de píldora visible que ya se usa para el OK de atributos enum/boolean.
+    okBtn.className = 'px-2.5 py-1 text-[12px] font-medium rounded-lg bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100 transition-colors';
+    okBtn.innerHTML = '✓ Confirmar';
     okBtn.onclick = () => {
       removeAc();
       let val;
@@ -747,6 +860,7 @@ function commitEdit(attr, value) {
     body: JSON.stringify({ attribute: attr, value }),
   })
     .then(res => { if (res) return readSSEStream(res, handleServerMessage); hidePriceLoading(true); })
+    .then(() => refreshSidebarAfterTurn())
     .catch(err => {
       console.error('Error en manual_update:', err);
       hidePriceLoading(true);
@@ -816,7 +930,11 @@ function hidePriceLoading(showEmpty = false) {
   }
 }
 
-// ── Precio: shell de tabs (Convenio Marco / Compra Ágil) ───────────
+// ── Precio: shell de vista única (Convenio Marco / Compra Ágil) ────
+// Antes había 2 pestañas siempre visibles y seleccionables a la vez.
+// Ahora se muestra un solo panel por vez (empieza en Convenio Marco) y
+// un botón contextual para pasar al otro catálogo -- así no hay 2
+// títulos compitiendo por atención, solo "dónde estoy" + "a dónde ir".
 let _priceShellReady = false;
 
 function ensurePriceShell() {
@@ -824,9 +942,9 @@ function ensurePriceShell() {
   _priceShellReady = true;
   const container = document.getElementById('price-container');
   container.innerHTML = `
-    <div class="flex items-center gap-1 mb-2 bg-slate-100 rounded-lg p-1 animate-in">
-      <button id="price-tab-btn-cm" onclick="switchPriceTab('cm')" class="flex-1 text-[11px] lg:text-[12px] font-semibold py-1.5 rounded-md transition-colors">Convenio Marco</button>
-      <button id="price-tab-btn-ca" onclick="switchPriceTab('ca')" class="flex-1 text-[11px] lg:text-[12px] font-semibold py-1.5 rounded-md transition-colors">Compra Ágil</button>
+    <div class="flex items-center justify-between mb-2 animate-in">
+      <span id="price-panel-label" class="text-[10px] font-semibold uppercase tracking-wide"></span>
+      <button id="price-switch-btn" onclick="switchPriceTab(state.activePriceTab === 'cm' ? 'ca' : 'cm')" class="text-[11px] lg:text-[12px] font-semibold px-2.5 py-1.5 rounded-lg transition-colors"></button>
     </div>
     <div id="price-panel-cm">${pricePanelLoadingHtml()}</div>
     <div id="price-panel-ca" class="hidden">${pricePanelLoadingHtml()}</div>`;
@@ -845,18 +963,91 @@ function switchPriceTab(tab) {
   state.activePriceTab = tab;
   const cmPanel = document.getElementById('price-panel-cm');
   const caPanel = document.getElementById('price-panel-ca');
-  const cmBtn = document.getElementById('price-tab-btn-cm');
-  const caBtn = document.getElementById('price-tab-btn-ca');
-  if (!cmPanel || !caPanel || !cmBtn || !caBtn) return;
+  const btn = document.getElementById('price-switch-btn');
+  const label = document.getElementById('price-panel-label');
+  if (!cmPanel || !caPanel || !btn || !label) return;
   cmPanel.classList.toggle('hidden', tab !== 'cm');
   caPanel.classList.toggle('hidden', tab !== 'ca');
-  const base = 'flex-1 text-[11px] lg:text-[12px] font-semibold py-1.5 rounded-md transition-colors';
-  const cmActive   = `${base} bg-emerald-600 text-white shadow-sm`;
-  const cmInactive = `${base} text-emerald-700 bg-emerald-100 hover:bg-emerald-200`;
-  const caActive   = `${base} bg-brand-600 text-white shadow-sm`;
-  const caInactive = `${base} text-brand-700 bg-blue-100 hover:bg-blue-200`;
-  cmBtn.className = tab === 'cm' ? cmActive : cmInactive;
-  caBtn.className = tab === 'ca' ? caActive : caInactive;
+  const base = 'text-[11px] lg:text-[12px] font-semibold px-2.5 py-1.5 rounded-lg transition-colors';
+  if (tab === 'cm') {
+    label.textContent = 'Convenio Marco';
+    label.className = 'text-[10px] font-semibold uppercase tracking-wide text-emerald-700';
+    btn.textContent = 'Ver en Compra Ágil';
+    btn.className = `${base} text-brand-700 bg-blue-100 hover:bg-blue-200`;
+  } else {
+    label.textContent = 'Compra Ágil';
+    label.className = 'text-[10px] font-semibold uppercase tracking-wide text-brand-700';
+    btn.textContent = 'Ver en Convenio Marco';
+    btn.className = `${base} text-emerald-700 bg-emerald-100 hover:bg-emerald-200`;
+  }
+}
+
+// ── Filtro de precio (acotar historial/catálogo al presupuesto real) ────
+// Se prellena con el rango ya calculado (p25-p75 en Compra Ágil, min-max en
+// Convenio Marco) para que el usuario lo "recorte" en vez de partir de cero.
+function _priceFilterHtml(source, defaultMin, defaultMax) {
+  const filter = source === 'ca' ? state.offerPriceFilter : state.cmOfferPriceFilter;
+  const min = filter.min ?? defaultMin;
+  const max = filter.max ?? defaultMax;
+  const accent = source === 'ca' ? 'brand' : 'emerald';
+  return `
+    <div class="mt-1.5 bg-white border border-slate-200 rounded-xl px-3 py-2">
+      <p class="text-[10px] font-semibold text-slate-400 uppercase tracking-wide mb-1.5">Filtrar por presupuesto</p>
+      <div class="flex items-center gap-1.5">
+        <input type="number" id="${source}-price-min" placeholder="Mín" value="${min ?? ''}"
+               class="w-full min-w-0 text-[11.5px] px-2 py-1.5 border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-${accent}-400"
+               onkeydown="if(event.key==='Enter') applyPriceFilter('${source}')">
+        <span class="text-slate-300 text-[11px] flex-shrink-0">–</span>
+        <input type="number" id="${source}-price-max" placeholder="Máx" value="${max ?? ''}"
+               class="w-full min-w-0 text-[11.5px] px-2 py-1.5 border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-${accent}-400"
+               onkeydown="if(event.key==='Enter') applyPriceFilter('${source}')">
+        <button onclick="applyPriceFilter('${source}')" class="flex-shrink-0 text-[11px] font-semibold text-white bg-${accent}-600 hover:bg-${accent}-700 px-2.5 py-1.5 rounded-lg transition-colors">Aplicar</button>
+        <button onclick="resetPriceFilter('${source}')" title="Restablecer al rango esperado" class="flex-shrink-0 w-7 h-7 flex items-center justify-center text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100 transition-colors">
+          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+        </button>
+      </div>
+    </div>`;
+}
+
+function applyPriceFilter(source) {
+  const minEl = document.getElementById(`${source}-price-min`);
+  const maxEl = document.getElementById(`${source}-price-max`);
+  const min = minEl && minEl.value !== '' ? Number(minEl.value) : null;
+  const max = maxEl && maxEl.value !== '' ? Number(maxEl.value) : null;
+  if (source === 'ca') {
+    state.offerPriceFilter = { min, max };
+    _offersFetched = false;
+    const list = document.getElementById('offers-list');
+    if (list && !list.classList.contains('hidden')) fetchOffers();
+  } else {
+    state.cmOfferPriceFilter = { min, max };
+    _cmOffersFetched = false;
+    const list = document.getElementById('cm-offers-list');
+    if (list && !list.classList.contains('hidden')) fetchCMOffers();
+  }
+}
+
+function resetPriceFilter(source) {
+  // Vuelve al rango automático (min/max = null, el backend decide) sin
+  // reconstruir todo el panel -- así no se pierde el estado expandido/
+  // colapsado del historial o catálogo si ya estaba abierto.
+  const minEl = document.getElementById(`${source}-price-min`);
+  const maxEl = document.getElementById(`${source}-price-max`);
+  if (source === 'ca') {
+    state.offerPriceFilter = { min: null, max: null };
+    if (minEl) minEl.value = state.priceData?.p25 ?? '';
+    if (maxEl) maxEl.value = state.priceData?.p75 ?? '';
+    _offersFetched = false;
+    const list = document.getElementById('offers-list');
+    if (list && !list.classList.contains('hidden')) fetchOffers();
+  } else {
+    state.cmOfferPriceFilter = { min: null, max: null };
+    if (minEl) minEl.value = state.cmPriceData?.min ?? '';
+    if (maxEl) maxEl.value = state.cmPriceData?.max ?? '';
+    _cmOffersFetched = false;
+    const list = document.getElementById('cm-offers-list');
+    if (list && !list.classList.contains('hidden')) fetchCMOffers();
+  }
 }
 
 // ── Precio: resultado (Compra Ágil) ─────────────────────────────────
@@ -884,6 +1075,22 @@ function renderPriceEstimate(data) {
       </div>
     </div>` : '';
 
+  // Sin match exacto con TODAS las specs -- se amplió la búsqueda soltando
+  // algunas (ver relajación en price_service.estimate()). Mismo patrón
+  // visual que ya existe para Convenio Marco (evita el mensaje contradictorio
+  // reportado: "sin precio" cuando en realidad sí hay evidencia, solo que
+  // con un match más amplio).
+  const relaxedWarningCA = (data.relaxed && data.relaxed_attrs && data.relaxed_attrs.length) ? `
+    <div class="flex items-start gap-2.5 bg-blue-50 border border-blue-200 rounded-lg px-3 py-2.5 mt-2">
+      <svg class="w-4 h-4 flex-shrink-0 text-blue-500 mt-0.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+        <circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/>
+      </svg>
+      <div>
+        <p class="text-[12px] font-semibold text-blue-700 leading-tight">Búsqueda ampliada</p>
+        <p class="text-[11px] text-blue-600 mt-0.5 leading-snug">No hubo transacciones con todas las specs exactas, así que se amplió el criterio soltando algunas de las menos determinantes para el precio.</p>
+      </div>
+    </div>` : '';
+
   container.innerHTML = `
     <div class="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden animate-in">
       <div class="flex items-center justify-between px-3 py-1.5 lg:px-4 lg:py-2 bg-gradient-to-r from-brand-700 to-brand-600">
@@ -905,7 +1112,10 @@ function renderPriceEstimate(data) {
             <p class="text-[11px] lg:text-[13px] text-slate-400 mt-0.5">estimación sin IVA &nbsp;·&nbsp; <span class="font-semibold text-slate-600">${fmt(data.mean_iva)}</span> c/IVA</p>
           </div>
           <div class="text-right flex-shrink-0">
-            <p class="text-[10px] lg:text-[12px] text-slate-400 mb-0.5">Rango esperado</p>
+            <p class="text-[10px] lg:text-[12px] text-slate-400 mb-0.5">
+              Rango esperado
+              <button onclick="toggleEl('ca-methodology-note')" title="¿Cómo se calcula?" class="ml-0.5 w-3.5 h-3.5 inline-flex items-center justify-center rounded-full border border-slate-300 text-slate-400 hover:border-brand-400 hover:text-brand-500 text-[9px] font-bold align-middle cursor-pointer">?</button>
+            </p>
             <p class="text-[12px] lg:text-[13px] font-medium text-slate-600">${fmt(data.p25)} – ${fmt(data.p75)}</p>
             <p class="text-[11px] text-slate-400 mt-0.5">${fmt(data.p25_iva)} – ${fmt(data.p75_iva)} c/IVA</p>
           </div>
@@ -916,12 +1126,17 @@ function renderPriceEstimate(data) {
           <div class="absolute top-1/2 -translate-y-1/2 w-2.5 h-2.5 lg:w-3 lg:h-3 bg-brand-600 rounded-full border-2 border-white shadow"
                style="left:calc(${meanPct.toFixed(1)}% - 5px)"></div>
         </div>
+        <div id="ca-methodology-note" class="hidden mb-1.5 bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-2 text-[10.5px] text-slate-500 leading-snug">
+          <strong class="text-slate-600">¿Cómo se calcula?</strong> Se toman las transacciones de Compra Ágil con especificaciones iguales o equivalentes a tu ficha. El <strong>rango esperado</strong> es el tramo entre el percentil 25 (p25) y el percentil 75 (p75): el 50% central de esos precios cae ahí (la mitad es más barata, la mitad más cara). La <strong>estimación</strong> es el promedio de ese mismo conjunto. Haz clic en "Ver historial de transacciones" abajo para ver cuántas son, de qué período y qué tipo de organismos compraron.
+        </div>
         <div class="text-center text-[10px] text-slate-300 border-t border-slate-100 pt-1.5">
           ${data.match_description}
         </div>
         ${broadWarning}
+        ${relaxedWarningCA}
       </div>
     </div>
+    ${_priceFilterHtml('ca', data.p25, data.p75)}
     <div class="mt-2">
       <button onclick="toggleOffers()" class="w-full flex items-center justify-between px-3 py-2.5 bg-brand-50 border border-brand-200 rounded-xl text-[12px] font-semibold text-brand-700 hover:bg-brand-100 hover:border-brand-300 transition-colors group">
         <span class="flex items-center gap-2">
@@ -1042,6 +1257,7 @@ function renderCMPriceEstimate(data) {
         ${unverifiedNote}
       </div>
     </div>
+    ${_priceFilterHtml('cm', data.min, data.max)}
     <div class="mt-2">
       <button onclick="toggleCMOffers()" class="w-full flex items-center justify-between px-3 py-2.5 bg-emerald-50 border border-emerald-200 rounded-xl text-[12px] font-semibold text-emerald-700 hover:bg-emerald-100 hover:border-emerald-300 transition-colors group">
         <span class="flex items-center gap-2">
@@ -1070,7 +1286,7 @@ function cmPriceNotFoundHtml() {
       </svg>
       <div>
         <p class="text-[13px] font-semibold text-amber-700">Sin productos en el catálogo vigente</p>
-        <p class="text-[12px] text-amber-600 mt-0.5 leading-snug">No encontramos equipos similares en Convenio Marco. Puedes revisar la referencia de Compra Ágil en la otra pestaña.</p>
+        <p class="text-[12px] text-amber-600 mt-0.5 leading-snug">No encontramos equipos similares en Convenio Marco. Te mostramos la referencia de Compra Ágil.</p>
       </div>
     </div>`;
 }
@@ -1088,10 +1304,18 @@ function toggleCMOffers() {
   if (isHidden && !_cmOffersFetched) fetchCMOffers();
 }
 
+function _priceQuery(filter) {
+  const params = new URLSearchParams();
+  if (filter.min != null) params.set('price_min', filter.min);
+  if (filter.max != null) params.set('price_max', filter.max);
+  const qs = params.toString();
+  return qs ? `?${qs}` : '';
+}
+
 async function fetchCMOffers() {
   const list = document.getElementById('cm-offers-list');
   try {
-    const resp = await apiFetch(`/api/cm_offers/${SESSION_ID}`, { headers: _headers() });
+    const resp = await apiFetch(`/api/cm_offers/${SESSION_ID}${_priceQuery(state.cmOfferPriceFilter)}`, { headers: _headers() });
     if (!resp) return;
     if (!resp.ok) throw new Error('offers fetch failed');
     const { offers } = await resp.json();
@@ -1129,6 +1353,8 @@ function renderCMOffers() {
       o.monitor_si_no ? `Monitor: ${escapeHtml(o.monitor_si_no)}` : null,
     ].filter(Boolean).join(' · ');
     const safeHref = safeUrl(o.url);
+    const key = `cm:${o.id_producto}`;
+    _compareCandidates[key] = _candidateFromCM(o);
 
     return `
     <div class="bg-white border border-slate-200 rounded-lg px-3 py-2.5 mb-1.5">
@@ -1143,17 +1369,374 @@ function renderCMOffers() {
           <p class="text-[10.5px] text-slate-400 mt-0.5">${fmtUsd(o.precio_min_usd)}${o.precio_max_usd && o.precio_max_usd !== o.precio_min_usd ? ` – ${fmtUsd(o.precio_max_usd)}` : ''}</p>
         </div>
       </div>
-      ${safeHref ? `
-      <a href="${escapeHtml(safeHref)}" target="_blank" rel="noopener" class="mt-2 inline-flex items-center gap-1.5 px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-semibold rounded-md transition-colors">
-        Ver en Convenio Marco
-        <svg class="w-3 h-3" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/>
-        </svg>
-      </a>` : ''}
+      <div class="flex flex-wrap items-center gap-1.5 mt-2">
+        ${_compareToggleBtn(key)}
+        ${safeHref ? `
+        <a href="${escapeHtml(safeHref)}" target="_blank" rel="noopener" class="inline-flex items-center gap-1.5 px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-semibold rounded-md transition-colors">
+          Ver en Convenio Marco
+          <svg class="w-3 h-3" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/>
+          </svg>
+        </a>` : ''}
+      </div>
     </div>`;
   }).join('');
 
   list.innerHTML = `<div class="max-h-80 overflow-y-auto pr-0.5">${cards}</div>`;
+}
+
+// ── Comparador de candidatos ─────────────────────────────────────
+// Cualquier oferta real (Compra Ágil o Convenio Marco) se puede marcar
+// como "candidato" para comparar hasta MAX_COMPARE lado a lado antes de
+// cerrar la ficha -- mismo patrón visual del carrito de Medicamentos
+// (barra flotante + panel), pero comparando alternativas para UNA misma
+// necesidad, no acumulando requerimientos distintos.
+const _compareCandidates = {}; // key -> candidato normalizado, fuente de verdad para el modal
+
+function _fmtSpec(v) {
+  if (v === null || v === undefined || v === '') return '—';
+  if (v === true || v === 'true') return 'Sí';
+  if (v === false || v === 'false') return 'No';
+  return String(v);
+}
+
+function _fmtGB(v) {
+  if (v === null || v === undefined || v === '') return '—';
+  const s = String(v);
+  return /gb/i.test(s) ? s : `${s} GB`;
+}
+
+function _compareFmtClp(n) {
+  return n != null
+    ? new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(n)
+    : '—';
+}
+
+// Normaliza una oferta de Compra Ágil (price_service.get_offer_rows) al shape común del comparador.
+function _candidateFromCA(o) {
+  return {
+    key: `ca:${o.id_oferta_aquiles}`,
+    source: 'Compra Ágil',
+    sourceColor: 'brand',
+    label: o.razon_social || o.marca || 'Oferta Compra Ágil',
+    marca: _fmtSpec(o.marca),
+    procesador_principal: _fmtSpec(o.procesador_principal),
+    total_ram_gb: _fmtGB(o.total_ram_gb),
+    tecnologia_ram: _fmtSpec(o.tecnologia_ram),
+    total_almacenamiento_gb: _fmtGB(o.total_almacenamiento_gb),
+    tecnologia_disco_principal: _fmtSpec(o.tecnologia_disco_principal),
+    tiene_gpu_dedicada: _fmtSpec(o.tiene_gpu_dedicada),
+    sistema_operativo: _fmtSpec(o.sistema_operativo),
+    precio: _compareFmtClp(o.precio_unitario_iva ?? o.precio_unitario),
+    precioNota: 'con IVA',
+    link: o.ca_available ? o.ca_url : (o.oc_urls && o.oc_urls[0]) || null,
+  };
+}
+
+// Normaliza un producto del catálogo Convenio Marco (cm_service.get_offer_rows).
+function _candidateFromCM(o) {
+  const precio = o.precio_max_clp && o.precio_max_clp !== o.precio_min_clp
+    ? `${_compareFmtClp(o.precio_min_clp)} – ${_compareFmtClp(o.precio_max_clp)}`
+    : _compareFmtClp(o.precio_min_clp);
+  return {
+    key: `cm:${o.id_producto}`,
+    source: 'Convenio Marco',
+    sourceColor: 'emerald',
+    label: [o.marca, o.modelo || o.nombre].filter(Boolean).join(' ') || 'Producto Convenio Marco',
+    marca: _fmtSpec(o.marca),
+    procesador_principal: _fmtSpec(o.procesador_principal),
+    total_ram_gb: _fmtGB(o.total_ram_gb),
+    tecnologia_ram: _fmtSpec(o.tecnologia_ram),
+    total_almacenamiento_gb: _fmtGB(o.total_almacenamiento_gb),
+    tecnologia_disco_principal: _fmtSpec(o.tecnologia_disco_principal),
+    tiene_gpu_dedicada: _fmtSpec(o.tiene_gpu_dedicada),
+    sistema_operativo: _fmtSpec(o.sistema_operativo),
+    precio,
+    precioNota: 'catálogo',
+    link: o.url || null,
+  };
+}
+
+function toggleEl(id) {
+  const el = document.getElementById(id);
+  if (el) el.classList.toggle('hidden');
+}
+
+function isInCompare(key) {
+  return state.compareItems.some(c => c.key === key);
+}
+
+// ── Persistencia de la selección (por conversación) ──────────────────────
+// El carrito de comparación es parte de la conversación activa, no del
+// usuario a secas -- así cada conversación tiene el suyo propio, sin
+// mezclarse (ver chat_session_service.py). Se manda tal cual (ya trae
+// label/specs/precio/link), sin depender de que las tarjetas originales
+// estén renderizadas. La carga inicial ocurre junto con el resto de la
+// conversación en loadActiveSession(), no acá.
+let _saveCompareTimer = null;
+function saveCompareSelection() {
+  clearTimeout(_saveCompareTimer);
+  _saveCompareTimer = setTimeout(() => {
+    apiFetch(`/api/compare/${SESSION_ID}`, {
+      method: 'POST',
+      headers: _headers(),
+      body: JSON.stringify({ items: state.compareItems }),
+    }).catch(() => {});
+  }, 400);
+}
+
+// Botón explícito (no checkbox) para marcar un candidato como "a comparar" --
+// más visible/intuitivo que un checkbox chico incrustado en el texto de la
+// tarjeta (feedback de revisión: "solo presionar el cuadrado es poco
+// intuitivo"). Mismo mecanismo de estado (toggleCompare), solo cambia el
+// control visual y cómo se refresca (por data-key, no por .checked).
+function _compareToggleBtn(key) {
+  const active = isInCompare(key);
+  return `<button type="button" class="compare-toggle-btn inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10.5px] font-semibold border transition-colors flex-shrink-0 ${active ? 'bg-brand-600 border-brand-600 text-white' : 'bg-white border-slate-300 text-slate-500 hover:border-brand-400 hover:text-brand-600'}" data-key="${escapeHtml(key)}" aria-pressed="${active}" onclick="event.stopPropagation();toggleCompare('${key}')">
+    <svg class="w-3 h-3 flex-shrink-0" fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
+    ${active ? 'Comparando' : 'Comparar'}
+  </button>`;
+}
+
+function toggleCompare(key) {
+  _tourNotify('compare-click');
+  if (isInCompare(key)) {
+    state.compareItems = state.compareItems.filter(c => c.key !== key);
+  } else {
+    if (state.compareItems.length >= MAX_COMPARE) {
+      alert(`Puedes comparar hasta ${MAX_COMPARE} equipos a la vez. Quita uno para agregar otro.`);
+      return;
+    }
+    const cand = _compareCandidates[key];
+    if (!cand) return;
+    state.compareItems.push(cand);
+  }
+  const active = isInCompare(key);
+  document.querySelectorAll(`.compare-toggle-btn[data-key="${CSS.escape(key)}"]`).forEach(btn => {
+    btn.setAttribute('aria-pressed', active);
+    btn.classList.toggle('bg-brand-600', active);
+    btn.classList.toggle('border-brand-600', active);
+    btn.classList.toggle('text-white', active);
+    btn.classList.toggle('bg-white', !active);
+    btn.classList.toggle('border-slate-300', !active);
+    btn.classList.toggle('text-slate-500', !active);
+    const label = btn.querySelector('svg').nextSibling;
+    if (label) label.textContent = active ? ' Comparando' : ' Comparar';
+  });
+  renderCompareBar();
+  if (!document.getElementById('compare-panel')?.classList.contains('hidden')) {
+    renderCompareModalBody();
+  }
+  saveCompareSelection();
+}
+
+function renderCompareBar() {
+  const btn = document.getElementById('compare-bar-btn');
+  const count = document.getElementById('compare-count');
+  if (!btn || !count) return;
+  const n = state.compareItems.length;
+  count.textContent = `${n}/${MAX_COMPARE}`;
+  const hasItems = n > 0;
+  btn.classList.toggle('bg-brand-700', hasItems);
+  btn.classList.toggle('hover:bg-brand-800', hasItems);
+  btn.classList.toggle('shadow-brand-900/20', hasItems);
+  btn.classList.toggle('bg-slate-400', !hasItems);
+  btn.classList.toggle('hover:bg-slate-500', !hasItems);
+  btn.classList.toggle('shadow-slate-900/10', !hasItems);
+}
+
+// _compareView: qué vista está activa dentro del panel -- 'selection'
+// (drawer angosto, candidatos agrupados por mecanismo, sin tabla) o
+// 'matrix' (panel expandido casi a pantalla completa, tabla invertida por
+// mecanismo, ver _renderCompareMatrixView()). Se resetea a 'selection'
+// cada vez que se abre el panel (openCompareModal()).
+let _compareView = 'selection';
+// Pestaña activa dentro de la vista Comparativa -- se recalcula sola en
+// cada render si la fuente activa se quedó sin candidatos (ver abajo).
+let _compareMatrixSource = null;
+
+function openCompareModal() {
+  if (!state.compareItems.length) return;
+  _tourNotify('compare-click');
+  _compareView = 'selection';
+  renderCompareModalBody();
+  document.getElementById('compare-panel')?.classList.remove('hidden');
+}
+
+function closeCompareModal() {
+  document.getElementById('compare-panel')?.classList.add('hidden');
+}
+
+function removeCompareItem(key) {
+  state.compareItems = state.compareItems.filter(c => c.key !== key);
+  document.querySelectorAll(`.compare-toggle-btn[data-key="${CSS.escape(key)}"]`).forEach(btn => {
+    btn.setAttribute('aria-pressed', 'false');
+    btn.classList.remove('bg-brand-600', 'border-brand-600', 'text-white');
+    btn.classList.add('bg-white', 'border-slate-300', 'text-slate-500');
+    const label = btn.querySelector('svg').nextSibling;
+    if (label) label.textContent = ' Comparar';
+  });
+  renderCompareBar();
+  saveCompareSelection();
+  if (!state.compareItems.length) { closeCompareModal(); return; }
+  renderCompareModalBody();
+}
+
+const COMPARE_ROWS = [
+  ['marca', 'Marca'],
+  ['procesador_principal', 'Procesador'],
+  ['total_ram_gb', 'RAM'],
+  ['tecnologia_ram', 'Tecnología RAM'],
+  ['total_almacenamiento_gb', 'Almacenamiento'],
+  ['tecnologia_disco_principal', 'Tecnología disco'],
+  ['tiene_gpu_dedicada', 'GPU dedicada'],
+  ['sistema_operativo', 'Sistema operativo'],
+];
+
+// Agrupa state.compareItems por mecanismo de compra -- siempre devuelve
+// las 2 claves (arrays vacíos si no hay candidatos de esa fuente), para
+// que el resto del código no tenga que chequear undefined.
+function _compareGroups() {
+  const groups = { 'Convenio Marco': [], 'Compra Ágil': [] };
+  state.compareItems.forEach(c => { if (groups[c.source]) groups[c.source].push(c); });
+  return groups;
+}
+
+// Dispatcher: dibuja el segmentado "Selección/Comparativa" del header, el
+// ancho del panel según la vista activa, y delega el cuerpo a la vista
+// correspondiente. Antes esto era una sola función que armaba una tabla
+// mezclando Convenio Marco y Compra Ágil -- ahora hay 2 vistas separadas
+// (ver _renderCompareSelectionView()/_renderCompareMatrixView() abajo).
+function renderCompareModalBody() {
+  const body = document.getElementById('compare-modal-body');
+  const sheet = document.getElementById('compare-panel-sheet');
+  const tabsEl = document.getElementById('compare-view-tabs');
+  if (!body || !sheet || !tabsEl) return;
+
+  const n = state.compareItems.length;
+  const tabCls = (active) => `flex-1 text-[11.5px] font-semibold py-1.5 rounded-md transition-colors ${active ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`;
+  tabsEl.innerHTML = `
+    <button type="button" onclick="_setCompareView('selection')" class="${tabCls(_compareView === 'selection')}">Selección (${n})</button>
+    <button type="button" onclick="_setCompareView('matrix')" class="${tabCls(_compareView === 'matrix')}">Comparativa</button>`;
+
+  sheet.classList.toggle('max-w-md', _compareView === 'selection');
+  sheet.classList.toggle('max-w-[96vw]', _compareView === 'matrix');
+  sheet.classList.toggle('lg:max-w-[92vw]', _compareView === 'matrix');
+
+  if (_compareView === 'matrix') _renderCompareMatrixView(body);
+  else _renderCompareSelectionView(body);
+}
+
+function _setCompareView(view) {
+  _compareView = view;
+  renderCompareModalBody();
+}
+
+// Vista inicial al abrir el panel: candidatos "a secas", agrupados por
+// mecanismo de compra, cada uno como tarjeta (specs clave + precio + link)
+// -- mismo patrón visual que las tarjetas de _renderOfferCards()/
+// renderCMOffers(), sin armar todavía la tabla comparativa.
+function _renderCompareSelectionView(body) {
+  const groups = _compareGroups();
+
+  const cardHtml = (c) => `
+    <div class="bg-slate-50 border border-slate-100 rounded-lg px-3 py-2.5 mb-2">
+      <div class="flex items-start justify-between gap-2">
+        <p class="text-[12.5px] font-semibold text-slate-800 leading-tight truncate min-w-0 flex-1">${escapeHtml(c.label)}</p>
+        <button onclick="removeCompareItem('${c.key}')" class="flex-shrink-0 w-6 h-6 flex items-center justify-center rounded-full text-slate-300 hover:text-red-500 hover:bg-red-50" aria-label="Quitar de la comparación">
+          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
+        </button>
+      </div>
+      <p class="text-[11px] text-slate-400 mt-0.5 truncate">${escapeHtml(c.procesador_principal)} · ${escapeHtml(c.total_ram_gb)} · ${escapeHtml(c.total_almacenamiento_gb)} · ${escapeHtml(c.sistema_operativo)}</p>
+      <div class="flex items-center justify-between mt-2">
+        <p class="text-[13.5px] font-bold text-brand-700">${escapeHtml(c.precio)} <span class="text-[10px] font-normal text-slate-400">${escapeHtml(c.precioNota || '')}</span></p>
+        ${c.link ? `<a href="${escapeHtml(safeUrl(c.link))}" target="_blank" rel="noopener" class="text-[11px] font-semibold text-brand-600 hover:text-brand-700 hover:underline">Ver origen →</a>` : ''}
+      </div>
+    </div>`;
+
+  const sectionHtml = (label, colorClass, items) => {
+    if (!items.length) return '';
+    return `
+      <div class="mb-4">
+        <p class="text-[10.5px] font-semibold uppercase tracking-wide ${colorClass} mb-2">${label} <span class="text-slate-400 font-normal normal-case">(${items.length})</span></p>
+        ${items.map(cardHtml).join('')}
+      </div>`;
+  };
+
+  body.innerHTML = `
+    ${sectionHtml('Convenio Marco', 'text-emerald-600', groups['Convenio Marco'])}
+    ${sectionHtml('Compra Ágil', 'text-brand-600', groups['Compra Ágil'])}
+    <button type="button" onclick="_setCompareView('matrix')" class="w-full mt-1 py-2.5 bg-brand-600 hover:bg-brand-700 text-white text-[13px] font-semibold rounded-lg transition-colors">Ver comparativa →</button>`;
+}
+
+// Vista "Comparativa": tabla invertida respecto al diseño anterior --
+// antes atributos en fila y equipos en columna (no escalaba bien más allá
+// de 3-4 candidatos ni se leía bien en el PDF); ahora un candidato por
+// fila y los atributos de COMPARE_ROWS en columna. Separada en pestañas
+// por mecanismo de compra para no mezclar Convenio Marco con Compra Ágil
+// en la misma tabla -- la pestaña sin candidatos queda deshabilitada, y si
+// la fuente activa se queda sin candidatos (se quitó el último), el
+// render siguiente cae solo a la primera fuente que sí tenga.
+function _renderCompareMatrixView(body) {
+  const groups = _compareGroups();
+  const sources = ['Convenio Marco', 'Compra Ágil'].filter(s => groups[s].length);
+  if (!sources.length) { body.innerHTML = ''; return; }
+  if (!_compareMatrixSource || !groups[_compareMatrixSource].length) {
+    _compareMatrixSource = sources[0];
+  }
+
+  const tabBtn = (source, activeColorClass) => {
+    const count = groups[source].length;
+    const disabled = count === 0;
+    const active = _compareMatrixSource === source;
+    const cls = disabled
+      ? 'text-slate-300 cursor-not-allowed'
+      : active ? `${activeColorClass} text-white shadow-sm`
+      : 'text-slate-500 bg-slate-100 hover:bg-slate-200';
+    return `<button type="button" ${disabled ? 'disabled' : `onclick="_setCompareMatrixSource('${source}')"`} class="px-3 py-1.5 rounded-md text-[11.5px] font-semibold transition-colors ${cls}">${source} (${count})</button>`;
+  };
+
+  const items = groups[_compareMatrixSource];
+  const headerCells = COMPARE_ROWS.map(([, label]) => `<th class="px-3 py-2.5 text-left text-[11px] font-semibold text-slate-500 uppercase tracking-wide whitespace-nowrap">${label}</th>`).join('');
+  const rows = items.map(c => `
+    <tr class="border-t border-slate-100">
+      <td class="px-3 py-2.5 align-top min-w-[170px]">
+        <button onclick="removeCompareItem('${c.key}')" class="float-right w-5 h-5 flex items-center justify-center rounded-full text-slate-300 hover:text-red-500 hover:bg-red-50 ml-1" aria-label="Quitar de la comparación">
+          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
+        </button>
+        <p class="text-[12.5px] font-semibold text-slate-800 leading-tight">${escapeHtml(c.label)}</p>
+      </td>
+      ${COMPARE_ROWS.map(([attr]) => `<td class="px-3 py-2.5 text-[12px] text-slate-700 font-medium whitespace-nowrap">${escapeHtml(c[attr])}</td>`).join('')}
+      <td class="px-3 py-2.5 whitespace-nowrap">
+        <p class="text-[13px] font-bold text-brand-700">${escapeHtml(c.precio)}</p>
+        <p class="text-[10px] text-slate-400">${escapeHtml(c.precioNota || '')}</p>
+      </td>
+      <td class="px-3 py-2.5">${c.link
+        ? `<a href="${escapeHtml(safeUrl(c.link))}" target="_blank" rel="noopener" class="text-[11px] font-semibold text-brand-600 hover:text-brand-700 hover:underline">Ver origen →</a>`
+        : `<span class="text-[11px] text-slate-300">—</span>`}</td>
+    </tr>`).join('');
+
+  body.innerHTML = `
+    <div class="flex items-center gap-1 mb-3 bg-slate-100 rounded-lg p-1 w-fit">
+      ${tabBtn('Convenio Marco', 'bg-emerald-600')}
+      ${tabBtn('Compra Ágil', 'bg-brand-600')}
+    </div>
+    <div class="overflow-x-auto">
+      <table class="w-full border-collapse">
+        <thead><tr>
+          <th class="px-3 py-2.5 text-left text-[11px] font-semibold text-slate-500 uppercase tracking-wide">Equipo</th>
+          ${headerCells}
+          <th class="px-3 py-2.5 text-left text-[11px] font-semibold text-slate-500 uppercase tracking-wide">Precio</th>
+          <th class="px-3 py-2.5"></th>
+        </tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>`;
+}
+
+function _setCompareMatrixSource(source) {
+  _compareMatrixSource = source;
+  renderCompareModalBody();
 }
 
 let _offersData = [];
@@ -1170,22 +1753,75 @@ function toggleOffers() {
   const isHidden = list.classList.contains('hidden');
   list.classList.toggle('hidden');
   if (chevron) chevron.style.transform = isHidden ? 'rotate(180deg)' : '';
-  if (isHidden && !_offersFetched) fetchOffers();
+  if (isHidden && (!_offersFetched || !_methodologyFetched)) fetchOffersAndMethodology();
 }
 
-async function fetchOffers() {
+// Trae la lista de transacciones y la metodología en paralelo (2 requests
+// independientes, cada una a su propia consulta SQL) pero espera a que
+// ambas terminen antes de pintar cualquiera de las dos -- antes cada fetch
+// se renderizaba apenas llegaba la suya, así que la más lenta (casi
+// siempre la metodología, que hace un JOIN extra) aparecía "de golpe" un
+// instante después de las transacciones, en vez de mostrarse juntas.
+async function fetchOffersAndMethodology() {
+  await Promise.all([
+    _offersFetched ? Promise.resolve() : fetchOffers({ render: false }),
+    _methodologyFetched ? Promise.resolve() : fetchMethodology({ render: false }),
+  ]);
+  renderOffers();
+}
+
+// ── Metodología de la estimación (trazabilidad) ──────────────────────
+// Cantidad de transacciones, período y tipo de organismo, calculado sobre
+// TODO el universo que calza con la ficha (no solo la página de 30 filas
+// del historial) -- para poder justificar la cifra ante control interno.
+let _methodologyData = null;
+let _methodologyFetched = false;
+
+async function fetchMethodology({ render = true } = {}) {
+  try {
+    const resp = await apiFetch(`/api/price_methodology/${SESSION_ID}`, { headers: _headers() });
+    if (!resp || !resp.ok) return;
+    const { methodology } = await resp.json();
+    _methodologyData = methodology;
+    _methodologyFetched = true;
+    if (render) renderMethodology();
+  } catch (e) {
+    // Silencioso -- si falla, el historial de todas formas se ve sin este bloque.
+  }
+}
+
+function renderMethodology() {
+  const el = document.getElementById('offers-methodology');
+  if (!el) return;
+  if (!_methodologyData) { el.innerHTML = ''; return; }
+  const m = _methodologyData;
+  const total = m.organismos.reduce((s, o) => s + o.count, 0) || 1;
+  const orgChips = m.organismos.map(o => {
+    const pct = Math.round((o.count / total) * 100);
+    return `<span class="inline-flex items-center gap-1 bg-white border border-slate-200 rounded-full px-2 py-0.5 text-[10px] text-slate-600 whitespace-nowrap">${escapeHtml(o.tipo)} <span class="text-slate-400 font-semibold">${pct}%</span></span>`;
+  }).join('');
+  el.innerHTML = `
+    <div class="bg-brand-50/70 border border-brand-100 rounded-lg px-3 py-2 mb-2">
+      <p class="text-[10px] font-semibold text-brand-600 uppercase tracking-wide mb-1">Metodología de esta estimación</p>
+      <p class="text-[11.5px] text-slate-600 mb-1.5"><strong>${m.count.toLocaleString('es-CL')}</strong> transacciones consideradas · período <strong>${escapeHtml(m.fecha_min || '—')}</strong> a <strong>${escapeHtml(m.fecha_max || '—')}</strong></p>
+      <p class="text-[10px] text-slate-400 mb-1">Desagregado por tipo de organismo comprador:</p>
+      <div class="flex flex-wrap gap-1">${orgChips}</div>
+    </div>`;
+}
+
+async function fetchOffers({ render = true } = {}) {
   const list = document.getElementById('offers-list');
   if (!list) return;
   try {
-    const resp = await apiFetch(`/api/offers/${SESSION_ID}`, { headers: _headers() });
+    const resp = await apiFetch(`/api/offers/${SESSION_ID}${_priceQuery(state.offerPriceFilter)}`, { headers: _headers() });
     if (!resp) return;
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
     const { offers } = await resp.json();
     _offersData = offers || [];
     _offersFetched = true;
-    renderOffers();
+    if (render) renderOffers();
   } catch (e) {
-    if (list) list.innerHTML = `<div class="text-center py-3 text-[12px] text-red-400">Error al cargar transacciones</div>`;
+    if (render && list) list.innerHTML = `<div class="text-center py-3 text-[12px] text-red-400">Error al cargar transacciones</div>`;
   }
 }
 
@@ -1239,6 +1875,70 @@ function _updateOfferControls() {
   });
 }
 
+// Detalle expandible por tarjeta -- qué atributos mostrar y con qué
+// etiqueta, agrupados igual que PDF_SECTIONS para que se sienta consistente
+// con el resto de la app. Reusa las etiquetas de ATTRS donde ya existen;
+// agrega las pocas columnas reales de PrecioCA que no forman parte de la
+// ficha (línea de producto, modelo, generación de procesador, etc.) pero sí
+// sirven para ver el equipo completo, no solo lo que el usuario pidió.
+// Fuera de esta lista a propósito: columnas administrativas (es_accesorio,
+// ROWNUM, unidad_venta) y resolucion_pantalla_pixeles (viene como total de
+// píxeles sin ancho×alto -- no es legible para una persona).
+const _OFFER_DETAIL_SECTIONS = [
+  { label: 'General',        fields: ['tipo_equipo', 'marca', 'linea_producto', 'nombre_modelo'] },
+  { label: 'Procesador',     fields: ['procesador_principal', 'linea_procesador', 'generacion_procesador', 'nucleos_procesador', 'hilos_procesador', 'frecuencia_turbo_procesador_mhz'] },
+  { label: 'Memoria RAM',    fields: ['total_ram_gb', 'tecnologia_ram', 'frecuencia_ram_mhz'] },
+  { label: 'Almacenamiento', fields: ['total_almacenamiento_gb', 'tecnologia_disco_principal', 'tipo_configuracion_discos'] },
+  { label: 'Gráficos',       fields: ['tiene_gpu_dedicada', 'gpu_dedicada_nombre', 'total_vram_gpu_gb', 'tecnologia_gpu_principal'] },
+  { label: 'Otros',          fields: ['pantalla_pulgadas', 'sistema_operativo', 'wifi_generacion', 'part_number'] },
+];
+const _OFFER_DETAIL_LABELS = {
+  generacion_procesador:     'Generación procesador',
+  tecnologia_gpu_principal:  'Tecnología GPU',
+  linea_producto:            'Línea de producto',
+  nombre_modelo:             'Modelo',
+  part_number:               'N° de parte',
+};
+
+// "No especificado" (y variantes de espacio/casing) es un placeholder real
+// que deja la carga de datos de PrecioCA, no un valor -- se trata como
+// ausente, igual que null/'' , para no llenar el detalle de ruido.
+function _fmtDetailVal(v) {
+  if (v === null || v === undefined) return null;
+  const s = String(v).trim();
+  if (!s || /^no especificado$/i.test(s)) return null;
+  if (s === 'true') return 'Sí';
+  if (s === 'false') return 'No';
+  return s;
+}
+
+function _offerDetailHtml(o) {
+  const sections = _OFFER_DETAIL_SECTIONS
+    .map(sec => {
+      const rows = sec.fields
+        .map(f => ({ label: _OFFER_DETAIL_LABELS[f] || (ATTRS[f] && ATTRS[f].label) || f, val: _fmtDetailVal(o[f]) }))
+        .filter(r => r.val !== null);
+      if (!rows.length) return '';
+      return `
+        <div>
+          <p class="text-[9.5px] font-semibold text-slate-400 uppercase tracking-wide mb-1">${escapeHtml(sec.label)}</p>
+          <div class="grid grid-cols-2 gap-x-3 gap-y-0.5">
+            ${rows.map(r => `<div class="flex justify-between gap-2 text-[11px]"><span class="text-slate-400">${escapeHtml(r.label)}</span><span class="text-slate-700 font-medium text-right">${escapeHtml(r.val)}</span></div>`).join('')}
+          </div>
+        </div>`;
+    })
+    .filter(Boolean)
+    .join('');
+  return sections || `<p class="text-[11px] text-slate-400">Sin más atributos disponibles para este equipo.</p>`;
+}
+
+let _offerDetailsOpen = new Set();
+function toggleOfferDetail(key) {
+  if (_offerDetailsOpen.has(key)) _offerDetailsOpen.delete(key);
+  else _offerDetailsOpen.add(key);
+  _renderOfferCards();
+}
+
 function _renderOfferCards() {
   const cards = document.getElementById('offers-cards');
   if (!cards) return;
@@ -1257,6 +1957,7 @@ function _renderOfferCards() {
 
   const _iconExternal = `<svg class="w-3 h-3" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/></svg>`;
   const _iconDoc      = `<svg class="w-3 h-3" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>`;
+  const _iconList     = `<svg class="w-3 h-3" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16M4 18h7"/></svg>`;
   const _btnOk  = (href, icon, label) => `<a href="${escapeHtml(safeUrl(href))}" target="_blank" rel="noopener" class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-semibold border transition-colors ${icon === _iconDoc ? 'bg-teal-50 text-teal-700 border-teal-200 hover:bg-teal-100 hover:border-teal-400' : 'bg-brand-50 text-brand-700 border-brand-200 hover:bg-brand-100 hover:border-brand-400'}">${icon}${label}</a>`;
   const _btnOff = (icon, label) => `<span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-medium border bg-slate-50 text-slate-400 border-slate-200">${icon}${label}</span>`;
 
@@ -1269,6 +1970,13 @@ function _renderOfferCards() {
     const caSection = o.ca_available
       ? _btnOk(o.ca_url, _iconDoc, 'Detalle Compra Ágil')
       : _btnOff(_iconDoc, 'Ficha no disponible');
+
+    const key = `ca:${o.id_oferta_aquiles ?? o.codigo_requerimiento}`;
+    _compareCandidates[key] = _candidateFromCA(o);
+
+    const detailOpen = _offerDetailsOpen.has(key);
+    const detailBtn = `<button type="button" onclick="event.stopPropagation();toggleOfferDetail('${key}')" class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-semibold border transition-colors ${detailOpen ? 'bg-slate-700 border-slate-700 text-white' : 'bg-white border-slate-300 text-slate-500 hover:border-slate-400 hover:text-slate-700'}">${_iconList}${detailOpen ? 'Ocultar detalle' : 'Ver detalle del producto'}</button>`;
+
     return `
       <div class="bg-slate-50 border border-slate-100 rounded-lg px-3 py-2">
         <div class="flex items-start justify-between gap-2">
@@ -1282,7 +1990,8 @@ function _renderOfferCards() {
             <p class="text-[12px] text-slate-400">${fmt(o.precio_unitario_iva)} c/IVA</p>
           </div>
         </div>
-        <div class="flex flex-wrap gap-1.5 mt-1.5">${ocSection}${caSection}</div>
+        <div class="flex flex-wrap gap-1.5 mt-1.5">${detailBtn}${_compareToggleBtn(key)}${ocSection}${caSection}</div>
+        ${detailOpen ? `<div class="mt-2 pt-2 border-t border-slate-200 space-y-2">${_offerDetailHtml(o)}</div>` : ''}
       </div>`;
   };
 
@@ -1338,6 +2047,7 @@ function renderOffers() {
     return;
   }
   list.innerHTML = `
+    <div id="offers-methodology"></div>
     <div class="flex flex-wrap items-center gap-x-3 gap-y-1 mb-2 px-0.5">
       <div class="flex items-center gap-1">
         <span class="text-[10px] text-slate-400">Ordenar:</span>
@@ -1354,6 +2064,7 @@ function renderOffers() {
     <div id="offers-cards" class="max-h-80 overflow-y-auto pr-0.5"></div>`;
   _updateOfferControls();
   _renderOfferCards();
+  renderMethodology();
 }
 
 // ── Sin precio encontrado ─────────────────────────────────────────
@@ -1365,7 +2076,7 @@ function priceNotFoundHtml() {
       </svg>
       <div>
         <p class="text-[13px] font-semibold text-amber-700">Sin precio de referencia disponible</p>
-        <p class="text-[12px] text-amber-600 mt-0.5 leading-snug">No encontramos suficientes ofertas similares en Compra Ágil. Prueba ajustando el procesador, RAM o almacenamiento.</p>
+        <p class="text-[12px] text-amber-600 mt-0.5 leading-snug">No encontramos ofertas similares en Compra Ágil, ni ampliando la búsqueda — probablemente el tipo de equipo, la RAM o el almacenamiento pedidos son muy específicos. Cuéntale al asistente qué podrías ajustar y te va a sugerir cómo seguir.</p>
       </div>
     </div>`;
 }
@@ -1395,19 +2106,27 @@ function hideFichaLoading() {
 
 // ── Descarga PDF ──────────────────────────────────────────────────
 const PDF_SECTIONS = [
-  { label: 'General',           attrs: ['tipo_equipo','marca'] },
+  { label: 'General',           attrs: ['tipo_equipo'] },
   { label: 'Procesador',        attrs: ['procesador_principal','linea_procesador','nucleos_procesador','hilos_procesador','frecuencia_turbo_procesador_mhz'] },
   { label: 'Memoria RAM',       attrs: ['total_ram_gb','tecnologia_ram','frecuencia_ram_mhz'] },
   { label: 'Almacenamiento',    attrs: ['total_almacenamiento_gb','tecnologia_disco_principal','tipo_configuracion_discos'] },
   { label: 'Gráficos',          attrs: ['tiene_gpu_dedicada','gpu_dedicada_nombre','total_vram_gpu_gb'] },
-  { label: 'Pantalla y Sistema',attrs: ['pantalla_pulgadas','sistema_operativo','wifi_generacion'] },
+  { label: 'Otros (opcional)',  attrs: ['marca','pantalla_pulgadas','sistema_operativo','wifi_generacion'] },
 ];
 
-function downloadFichaPDF() {
+async function downloadFichaPDF() {
+  _tourNotify('pdf-click');
   const anyFilled = Object.values(state.ficha).some(f => f?.value != null);
   if (!anyFilled) {
     alert('La ficha aún no tiene datos. Completa al menos un atributo antes de descargar.');
     return;
+  }
+
+  // Deja constancia de la metodología en el PDF aunque el usuario nunca
+  // haya expandido "Ver historial de transacciones" -- se trae acá si
+  // todavía no se pidió, en vez de omitir el bloque en el PDF final.
+  if (state.priceData && !_methodologyFetched) {
+    await fetchMethodology();
   }
 
   const origin = window.location.origin;
@@ -1473,6 +2192,29 @@ function downloadFichaPDF() {
       </div>`;
   }
 
+  // Metodología de la estimación de Compra Ágil -- solo si el usuario ya
+  // expandió "Ver historial de transacciones" en algún momento de la
+  // sesión (si no, no se tiene el dato y se omite el bloque en vez de
+  // mostrar algo a medias). Deja constancia de cómo se llegó a la cifra,
+  // para justificarla ante control interno.
+  let methodologyBox = '';
+  if (ca && _methodologyData) {
+    const m = _methodologyData;
+    const totalOrg = m.organismos.reduce((s, o) => s + o.count, 0) || 1;
+    const orgLine = m.organismos
+      .map(o => `${o.tipo} (${Math.round((o.count / totalOrg) * 100)}%)`)
+      .join(' · ');
+    methodologyBox = `
+      <div style="margin-top:14px;border:1px solid #e2e8f0;border-radius:10px;padding:14px 18px;background:#fafbfc;">
+        <div style="font-size:9px;letter-spacing:.08em;text-transform:uppercase;color:#64748b;font-weight:700;margin-bottom:6px;">Metodología de la estimación (Compra Ágil)</div>
+        <div style="font-size:10px;color:#475569;line-height:1.6;">
+          Calculada sobre <strong>${m.count.toLocaleString('es-CL')} transacciones</strong> de Compra Ágil con especificaciones iguales o equivalentes a esta ficha, del período <strong>${m.fecha_min || '—'}</strong> a <strong>${m.fecha_max || '—'}</strong>.
+          El rango esperado corresponde al percentil 25 – percentil 75 (el 50% central de esos precios); la estimación es el promedio del mismo conjunto.<br>
+          Organismos compradores: ${escapeHtml(orgLine)}.
+        </div>
+      </div>`;
+  }
+
   const pricePageHtml = (ca || cm) ? `
     <div style="page-break-before:always;padding-top:32px;">
       <div style="background:#0f3d78;color:white;padding:22px 28px;border-radius:10px;margin-bottom:22px;">
@@ -1483,7 +2225,64 @@ function downloadFichaPDF() {
       <div style="display:flex;gap:18px;">
         ${cmCard}${caCard}
       </div>
+      ${methodologyBox}
     </div>` : '';
+
+  // Página(s) de comparación de candidatos (opcional, solo si el usuario
+  // marcó alguno). Misma orientación invertida que la vista "Comparativa"
+  // en pantalla (un candidato por fila, atributos en columna, ver
+  // _renderCompareMatrixView() en app.js) y separada en 2 secciones
+  // independientes por mecanismo de compra -- antes era una sola tabla
+  // mezclando Convenio Marco y Compra Ágil, paginada por grupos de
+  // columnas de candidato; ahora el número de columnas es fijo (8
+  // atributos de COMPARE_ROWS + precio, sin importar cuántos candidatos
+  // haya), así que ya no hace falta esa lógica de "chunking" por ancho --
+  // el ancho de cada columna se calcula una sola vez sobre los 692px
+  // reales y confirmados de .pdf-wrap (ver nota histórica del punto 1.3,
+  // 2ª/4ª actualización, en la bitácora: max-width:780px con
+  // box-sizing:border-box + padding:36px 44px da 780-44*2=692px de
+  // contenido útil real, y los márgenes negativos no son confiables con
+  // html2canvas).
+  const cmp = state.compareItems;
+  const CONTENT_W = 692;
+  const LABEL_W = 100;  // columna "Equipo"
+  const PRICE_W = 78;   // columna "Precio"
+  const attrColW = Math.floor((CONTENT_W - LABEL_W - PRICE_W) / COMPARE_ROWS.length);
+  const tableW = LABEL_W + attrColW * COMPARE_ROWS.length + PRICE_W; // <= CONTENT_W siempre
+
+  const compareSectionHtml = (title, accent, items) => {
+    if (!items.length) return '';
+    const headHtml = COMPARE_ROWS.map(([, label]) => `
+      <th style="text-align:left;padding:6px 5px;border-left:1px solid #dbeafe;width:${attrColW}px;font-size:8px;font-weight:700;letter-spacing:.03em;text-transform:uppercase;color:#64748b;">${label}</th>`).join('');
+    const rowsHtml = items.map(c => `
+      <tr>
+        <td style="font-size:9.5px;font-weight:700;color:#1e293b;padding:6px 5px;border-bottom:1px solid #eef2f7;width:${LABEL_W}px;word-break:break-word;">${escapeHtml(c.label)}</td>
+        ${COMPARE_ROWS.map(([attr]) => `<td style="font-size:9px;color:#334155;padding:6px 5px;border-bottom:1px solid #eef2f7;border-left:1px solid #eef2f7;width:${attrColW}px;word-break:break-word;">${escapeHtml(c[attr])}</td>`).join('')}
+        <td style="font-size:9.5px;font-weight:800;color:#154f96;padding:6px 5px;border-bottom:1px solid #eef2f7;border-left:1px solid #eef2f7;width:${PRICE_W}px;word-break:break-word;">${escapeHtml(c.precio)}<br><span style="font-size:7.5px;font-weight:400;color:#94a3b8;">${escapeHtml(c.precioNota || '')}</span></td>
+      </tr>`).join('');
+
+    return `
+    <div style="page-break-before:always;padding-top:32px;">
+      <div style="background:${accent};color:white;padding:22px 28px;border-radius:10px;margin-bottom:22px;">
+        <div style="font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;color:rgba(255,255,255,.55);margin-bottom:6px;">Compra Ágil · Asistente IA</div>
+        <div style="font-size:22px;font-weight:800;">Comparación · ${title}</div>
+        <div style="font-size:10.5px;color:rgba(255,255,255,.65);margin-top:4px;">Generado el ${now} · ${items.length} equipo(s) comparado(s)</div>
+      </div>
+      <table style="width:${tableW}px;max-width:${CONTENT_W}px;table-layout:fixed;border-collapse:collapse;border:1px solid #eef2f7;border-radius:8px;overflow:hidden;">
+        <thead><tr>
+          <th style="padding:6px 5px;width:${LABEL_W}px;font-size:8px;font-weight:700;text-transform:uppercase;color:#64748b;text-align:left;">Equipo</th>
+          ${headHtml}
+          <th style="padding:6px 5px;width:${PRICE_W}px;font-size:8px;font-weight:700;text-transform:uppercase;color:#64748b;text-align:left;">Precio</th>
+        </tr></thead>
+        <tbody>${rowsHtml}</tbody>
+      </table>
+    </div>`;
+  };
+
+  const comparePageHtml = cmp.length
+    ? compareSectionHtml('Convenio Marco', '#0f7a4f', cmp.filter(c => c.source === 'Convenio Marco'))
+      + compareSectionHtml('Compra Ágil', '#154f96', cmp.filter(c => c.source === 'Compra Ágil'))
+    : '';
 
   const css = `
     *{margin:0;padding:0;box-sizing:border-box}
@@ -1499,7 +2298,7 @@ function downloadFichaPDF() {
     .meta{display:flex;justify-content:space-between;background:#f8fafc;border:1px solid #e2e8f0;border-radius:7px;padding:9px 14px;margin-bottom:22px}
     .meta p{font-size:10.5px;color:#64748b}
     .meta strong{color:#334155}
-    .sec{margin-bottom:18px}
+    .sec{margin-bottom:18px;break-inside:avoid;page-break-inside:avoid}
     .sec-title{font-size:9.5px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:#0f3d78;background:#e8f0fb;padding:5px 11px;border-radius:5px;margin-bottom:7px}
     table{width:100%;border-collapse:collapse}
     tr{border-bottom:1px solid #f1f5f9}
@@ -1532,6 +2331,7 @@ function downloadFichaPDF() {
     </div>
     ${sectionsHtml}
     ${pricePageHtml}
+    ${comparePageHtml}
     <div class="ftr">
       <p>Asistente IA · Compra Ágil · Universidad de Chile</p>
       <span class="badge">COMPRA ÁGIL</span>
@@ -1559,6 +2359,10 @@ function downloadFichaPDF() {
     image:      { type: 'jpeg', quality: 0.97 },
     html2canvas: { scale: 2, useCORS: true, logging: false },
     jsPDF:      { unit: 'mm', format: 'a4', orientation: 'portrait' },
+    // Modo 'legacy' (altura fija) corta secciones a la mitad si caen justo
+    // en el borde de una página -- 'css' respeta break-inside:avoid (.sec)
+    // y evita ese corte a costa de dejar algo más de espacio en blanco.
+    pagebreak: { mode: ['css', 'legacy'], avoid: '.sec' },
   }).from(wrapEl).save().finally(() => {
     document.body.removeChild(tmpEl);
   });
@@ -1578,6 +2382,14 @@ function resetUI() {
   _priceShellReady = false;
   _cmOffersData = [];
   _cmOffersFetched = false;
+  state.compareItems = [];
+  closeCompareModal();
+  renderCompareBar();
+  state.offerPriceFilter = { min: null, max: null };
+  state.cmOfferPriceFilter = { min: null, max: null };
+  _methodologyData = null;
+  _methodologyFetched = false;
+  _offerDetailsOpen.clear();
 
   const chatContainer = document.getElementById('chat-messages');
   Array.from(chatContainer.children).forEach(child => {
@@ -1602,9 +2414,401 @@ function resetUI() {
   updateProgress();
 }
 
-function resetSession() {
+// ── Conversaciones (sidebar) ─────────────────────────────────────────────
+// Reemplaza el viejo "Nueva sesión" (que reescribía la ÚNICA conversación
+// existente, perdiendo la anterior) -- cada usuario ahora acumula varias
+// conversaciones guardadas (ficha, mensajes, carrito), listadas acá, y
+// puede crear, renombrar o eliminar sin perder las demás.
+
+function startNewConversation() {
   resetUI();
-  apiFetch(`/api/reset/${SESSION_ID}`, { method: 'POST', headers: _headers() }).catch(() => {});
+  _setSessionId(crypto.randomUUID());
+  _setActiveSessionTitle(null);
+  _sidebarDeleteConfirmId = null;
+  _renderSessionsList();
+  closeSidebarMobile();
+}
+
+function _setActiveSessionTitle(title) {
+  const el = document.getElementById('active-session-title');
+  if (el) el.textContent = title || 'Nueva conversación';
+}
+
+let _sidebarSessions = [];
+let _sidebarDeleteConfirmId = null;
+
+async function loadSessionsList() {
+  try {
+    const resp = await apiFetch('/api/sessions', { headers: _headers() });
+    if (!resp || !resp.ok) return;
+    const { sessions } = await resp.json();
+    _sidebarSessions = Array.isArray(sessions) ? sessions : [];
+    _renderSessionsList();
+  } catch (e) { /* silencioso -- el sidebar simplemente arranca vacío */ }
+}
+
+// Refresco de fondo tras cada turno completado (chat o edición manual) --
+// para que la conversación activa aparezca/suba al tope de la lista sin
+// que el usuario tenga que hacer nada. No bloquea ninguna acción visible.
+function refreshSidebarAfterTurn() {
+  loadSessionsList();
+}
+
+function _relativeTime(iso) {
+  if (!iso) return '';
+  const diffMs = Date.now() - new Date(iso).getTime();
+  const min = Math.round(diffMs / 60000);
+  if (min < 1) return 'ahora';
+  if (min < 60) return `hace ${min} min`;
+  const hr = Math.round(min / 60);
+  if (hr < 24) return `hace ${hr} h`;
+  const day = Math.round(hr / 24);
+  if (day < 7) return `hace ${day} d`;
+  return new Date(iso).toLocaleDateString('es-CL', { day: 'numeric', month: 'short' });
+}
+
+function _renderSessionsList() {
+  const container = document.getElementById('sessions-list');
+  if (!container) return;
+
+  if (!_sidebarSessions.length) {
+    container.innerHTML = `<p class="px-2 py-4 text-[12px] text-slate-400 text-center">Aún no tienes conversaciones guardadas.</p>`;
+    return;
+  }
+
+  container.innerHTML = _sidebarSessions.map(s => {
+    if (_sidebarDeleteConfirmId === s.session_id) {
+      return `
+        <div class="rounded-lg px-2 py-2 bg-rose-50 border border-rose-200">
+          <p class="text-[12px] text-rose-700 mb-1.5">¿Eliminar esta conversación?</p>
+          <div class="flex gap-1.5">
+            <button class="flex-1 px-2 py-1 text-[11.5px] font-semibold text-white bg-rose-600 hover:bg-rose-700 rounded-md cursor-pointer" onclick="_deleteSessionConfirm('${s.session_id}')">Sí, eliminar</button>
+            <button class="flex-1 px-2 py-1 text-[11.5px] font-medium text-slate-600 bg-white border border-slate-200 hover:bg-slate-50 rounded-md cursor-pointer" onclick="_deleteSessionCancel()">No</button>
+          </div>
+        </div>`;
+    }
+    const active = s.session_id === SESSION_ID;
+    return `
+      <div class="group relative rounded-lg px-2 py-2 cursor-pointer transition-colors ${active ? 'bg-brand-50' : 'hover:bg-slate-50'}" onclick="switchToSession('${s.session_id}')" data-session-id="${s.session_id}">
+        <div class="flex items-center gap-1">
+          <p class="session-title flex-1 min-w-0 truncate text-[13px] ${active ? 'font-semibold text-brand-700' : 'text-slate-700'}">${escapeHtml(s.title)}</p>
+          <button class="opacity-0 group-hover:opacity-100 w-6 h-6 flex-shrink-0 flex items-center justify-center rounded text-slate-400 hover:bg-slate-200 hover:text-slate-700 cursor-pointer" title="Renombrar" onclick="event.stopPropagation();_renameSessionStart('${s.session_id}')">
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
+          </button>
+          <button class="opacity-0 group-hover:opacity-100 w-6 h-6 flex-shrink-0 flex items-center justify-center rounded text-slate-400 hover:bg-rose-100 hover:text-rose-600 cursor-pointer" title="Eliminar" onclick="event.stopPropagation();_deleteSessionStart('${s.session_id}')">
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+          </button>
+        </div>
+        <p class="text-[10.5px] text-slate-400 mt-0.5">${_relativeTime(s.updated_at)}</p>
+      </div>`;
+  }).join('');
+}
+
+async function switchToSession(id) {
+  if (id === SESSION_ID) { closeSidebarMobile(); return; }
+  _sidebarDeleteConfirmId = null;
+  resetUI();
+  _setSessionId(id);
+  _renderSessionsList();
+  closeSidebarMobile();
+  _setSwitchOverlay(true);
+  try {
+    await loadActiveSession();
+  } finally {
+    _setSwitchOverlay(false);
+  }
+}
+
+// GET /api/sessions/{id} puede tardar unos segundos (recalcula el precio
+// en caliente) -- sin este overlay, el panel se queda en blanco mientras
+// tanto y se ve como si no hubiera pasado nada al elegir una conversación
+// (bug reportado). Cubre chat y ficha (los 2 paneles que rehidrata
+// loadActiveSession()); try/finally asegura que se oculte también si la
+// carga falla.
+function _setSwitchOverlay(show) {
+  ['chat-switch-overlay', 'ficha-switch-overlay'].forEach(id => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.classList.toggle('hidden', !show);
+    el.classList.toggle('flex', show);
+  });
+}
+
+// Renombrar: edición inline y optimista -- el texto cambia al instante en
+// pantalla, la escritura real al backend va de fondo con debounce (mismo
+// patrón que saveCompareSelection). Pedido explícito: que no se sienta con
+// la latencia que tuvieron acciones parecidas antes en esta sesión.
+let _renameTimer = null;
+function _renameSessionStart(id) {
+  const row = document.querySelector(`[data-session-id="${id}"]`);
+  const titleEl = row?.querySelector('.session-title');
+  if (!row || !titleEl) return;
+  const current = titleEl.textContent;
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.value = current;
+  input.className = 'flex-1 min-w-0 text-[13px] px-1 py-0.5 rounded border border-brand-300 focus:outline-none focus:ring-1 focus:ring-brand-400';
+  input.onclick = (e) => e.stopPropagation();
+  input.onkeydown = (e) => {
+    if (e.key === 'Enter') input.blur();
+    if (e.key === 'Escape') { input.value = current; input.blur(); }
+  };
+  input.onblur = () => _renameSessionCommit(id, input.value);
+  titleEl.replaceWith(input);
+  input.focus();
+  input.select();
+}
+
+function _renameSessionCommit(id, newTitle) {
+  newTitle = (newTitle || '').trim();
+  if (!newTitle) { _renderSessionsList(); return; }
+  const s = _sidebarSessions.find(x => x.session_id === id);
+  if (s) s.title = newTitle;
+  if (id === SESSION_ID) _setActiveSessionTitle(newTitle);
+  _renderSessionsList();
+  clearTimeout(_renameTimer);
+  _renameTimer = setTimeout(() => {
+    apiFetch(`/api/sessions/${id}/rename`, {
+      method: 'POST',
+      headers: _headers(),
+      body: JSON.stringify({ title: newTitle }),
+    }).catch(() => {});
+  }, 400);
+}
+
+// Eliminar: sin confirm() nativo (lento/brusco) -- el propio ítem se
+// convierte en una fila "¿Eliminar? Sí/No" in-place. Al confirmar, sale de
+// la lista al instante (optimista) y el borrado real va de fondo.
+function _deleteSessionStart(id) {
+  _sidebarDeleteConfirmId = id;
+  _renderSessionsList();
+}
+
+function _deleteSessionCancel() {
+  _sidebarDeleteConfirmId = null;
+  _renderSessionsList();
+}
+
+function _deleteSessionConfirm(id) {
+  _sidebarDeleteConfirmId = null;
+  _sidebarSessions = _sidebarSessions.filter(s => s.session_id !== id);
+  _renderSessionsList();
+  apiFetch(`/api/sessions/${id}/delete`, { method: 'POST', headers: _headers() }).catch(() => {});
+  if (id === SESSION_ID) startNewConversation();
+}
+
+// ── Sidebar: abrir/cerrar (mobile) y colapsar (desktop) ──────────────────
+function openSidebarMobile() {
+  document.getElementById('sessions-overlay')?.classList.remove('hidden');
+}
+function closeSidebarMobile() {
+  document.getElementById('sessions-overlay')?.classList.add('hidden');
+}
+function toggleSidebarCollapse() {
+  document.getElementById('sessions-sidebar')?.classList.toggle('sidebar-collapsed');
+}
+
+// ── Tutorial interactivo (product tour) ──────────────────────────────
+// A pedido explícito: no alcanza con un modal que solo explica -- tiene que
+// hacer escribir/presionar en la app real. Cada paso resalta (spotlight) el
+// elemento real correspondiente y, cuando corresponde, ESPERA a que el
+// usuario haga la acción real (escribir+enviar, tocar una fila, marcar
+// comparar, descargar el PDF) antes de avanzar solo -- no es "Siguiente"
+// en cada paso. _tourNotify() la llaman a mano los puntos reales del código
+// donde ocurre cada acción (sendMessage, el evento 'assistant_done', el
+// click-to-edit de una fila, toggleCompare, downloadFichaPDF).
+const TOUR_SEEN_KEY = 'compra_agil_tutorial_seen';
+
+const TOUR_STEPS = [
+  {
+    target: '#chat-input-field',
+    tab: 'chat',
+    title: 'Escribe tu necesidad',
+    body: 'Describe qué equipo necesitas -- por ejemplo "laptop para trabajo de oficina" -- y presiona el botón de enviar (o Enter).',
+    waitFor: 'send',
+  },
+  {
+    target: '#chat-messages',
+    tab: 'chat',
+    title: 'El asistente responde',
+    body: 'Espera la respuesta: va a completar la ficha técnica de la derecha automáticamente, sin que tengas que llenar nada a mano.',
+    waitFor: 'assistant_done',
+  },
+  {
+    target: '.attr-row[data-attr]:not([data-readonly])',
+    tab: 'ficha',
+    title: 'Revisa la ficha técnica',
+    body: 'Aquí se completan los atributos solos. Haz clic en cualquier fila para editarla -- prueba con una ahora.',
+    waitFor: 'attr-edit',
+  },
+  {
+    target: '#price-container',
+    tab: 'ficha',
+    title: 'Precio de referencia',
+    body: 'Cuando la ficha tenga suficientes datos, aquí aparece un precio estimado usando compras reales anteriores de Convenio Marco y Compra Ágil.',
+    waitFor: null,
+  },
+  {
+    target: '#compare-bar',
+    tab: 'ficha',
+    title: 'Comparar alternativas',
+    body: 'Marca "Comparar" en las ofertas que veas para agregarlas, y luego haz clic aquí para verlas lado a lado.',
+    missingBody: 'Este botón siempre está aquí abajo, aunque ahora esté vacío -- el botón "Comparar" aparece junto a cada equipo del historial o catálogo, una vez que hay precio de referencia. Márcalo ahí y esta barra se activa sola. Puedes continuar por ahora.',
+    waitFor: 'compare-click',
+    // El elemento #compare-bar SIEMPRE existe en el DOM (se dejó de ocultar
+    // cuando está vacío -- ver fix del comentario), así que la
+    // disponibilidad real del paso depende del ESTADO (¿ya hay algo
+    // marcado?), no de si el elemento aparece o no.
+    unavailable: () => state.compareItems.length === 0,
+  },
+  {
+    target: '#btn-download-pdf',
+    tab: 'ficha',
+    title: 'Descarga la ficha',
+    body: 'Cuando esté lista, descárgala en PDF con este botón para adjuntarla a tu proceso de compra.',
+    waitFor: 'pdf-click',
+  },
+];
+
+let _tourStep = 0;
+let _tourActive = false;
+
+function _tourClearSpotlight() {
+  document.querySelectorAll('.tour-spotlight').forEach(el => {
+    el.classList.remove('tour-spotlight');
+    el.style.position = '';
+    el.style.zIndex = '';
+    el.style.boxShadow = '';
+  });
+}
+
+function _tourPositionTooltip(target) {
+  const tooltip = document.getElementById('tour-tooltip');
+  if (!target) {
+    tooltip.style.position = 'fixed';
+    tooltip.style.top = '50%';
+    tooltip.style.left = '50%';
+    tooltip.style.transform = 'translate(-50%, -50%)';
+    return;
+  }
+  tooltip.style.transform = '';
+  const rect = target.getBoundingClientRect();
+  const tw = tooltip.offsetWidth || 290;
+  const th = tooltip.offsetHeight || 150;
+  const margin = 14;
+  let top = rect.bottom + margin;
+  if (top + th > window.innerHeight - 10) top = Math.max(10, rect.top - th - margin);
+  let left = rect.left;
+  if (left + tw > window.innerWidth - 10) left = window.innerWidth - tw - 10;
+  if (left < 10) left = 10;
+  tooltip.style.top = `${top}px`;
+  tooltip.style.left = `${left}px`;
+}
+
+function renderTourStep() {
+  const step = TOUR_STEPS[_tourStep];
+  _tourClearSpotlight();
+  if (step.tab) switchTab(step.tab);
+
+  // requestAnimationFrame: deja que switchTab reacomode el layout antes de
+  // medir posiciones -- si se mide en el mismo tick, el panel recién
+  // mostrado puede seguir midiendo 0 (todavía con la clase mobile-hidden).
+  requestAnimationFrame(() => {
+    const target = document.querySelector(step.target);
+    const tooltip = document.getElementById('tour-tooltip');
+    document.getElementById('tour-step-label').textContent = `Paso ${_tourStep + 1} de ${TOUR_STEPS.length}`;
+    document.getElementById('tour-title').textContent = step.title;
+
+    // Un paso puede quedar "no disponible" por dos razones distintas: el
+    // elemento todavía no existe en el DOM (ej. ninguna fila renderizada
+    // -- no debería pasar en la práctica, pero es el fallback genérico), o
+    // el elemento SÍ existe pero el estado real de la app todavía no lo
+    // hace útil (ej. #compare-bar siempre está en el DOM, pero marcar algo
+    // recién tiene sentido si hay ofertas visibles -- ahí el paso define
+    // su propio unavailable() en vez de depender de si el nodo existe).
+    const isUnavailable = step.unavailable ? step.unavailable() : !target;
+    const waitFor = isUnavailable ? null : step.waitFor;
+    document.getElementById('tour-body').textContent = isUnavailable ? (step.missingBody || step.body) : step.body;
+
+    if (target) {
+      target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      target.classList.add('tour-spotlight');
+      target.style.position = 'relative';
+      target.style.zIndex = '1000';
+      target.style.boxShadow = '0 0 0 4px #fff, 0 0 0 6px #154f96, 0 0 0 9999px rgba(15,23,42,.6)';
+      setTimeout(() => _tourPositionTooltip(target), 340);
+    } else {
+      _tourPositionTooltip(null);
+    }
+
+    const nextBtn = document.getElementById('tour-next');
+    nextBtn.textContent = waitFor
+      ? 'Saltar este paso →'
+      : (_tourStep === TOUR_STEPS.length - 1 ? 'Listo' : 'Siguiente →');
+
+    tooltip.classList.remove('hidden');
+  });
+}
+
+function tourAdvance() {
+  if (!_tourActive) return;
+  if (_tourStep >= TOUR_STEPS.length - 1) { closeTutorial(); return; }
+  _tourStep++;
+  renderTourStep();
+}
+
+function tourManualAdvance() {
+  tourAdvance();
+}
+
+// Los puntos reales del código (sendMessage, assistant_done, click-to-edit
+// de fila, toggleCompare, downloadFichaPDF) llaman esto -- si el tour está
+// activo y el paso actual está esperando justo ese evento, avanza solo.
+function _tourNotify(eventName) {
+  if (!_tourActive) return;
+  const step = TOUR_STEPS[_tourStep];
+  if (step && step.waitFor === eventName) {
+    setTimeout(tourAdvance, 450); // deja que la acción se vea en pantalla antes de saltar
+  }
+}
+
+function _tourReposition() {
+  if (!_tourActive) return;
+  const step = TOUR_STEPS[_tourStep];
+  const target = step && step.target ? document.querySelector(step.target) : null;
+  _tourPositionTooltip(target);
+}
+window.addEventListener('scroll', _tourReposition, true); // capture: reposiciona aunque el scroll sea dentro de un panel interno, no solo la ventana
+window.addEventListener('resize', _tourReposition);
+
+function openTutorial() {
+  _tourStep = 0;
+  _tourActive = true;
+  renderTourStep();
+  const badge = document.getElementById('tutorial-badge');
+  if (badge) badge.classList.add('hidden');
+  try { localStorage.setItem(TOUR_SEEN_KEY, '1'); } catch (e) {}
+}
+
+function closeTutorial() {
+  _tourActive = false;
+  _tourClearSpotlight();
+  document.getElementById('tour-tooltip')?.classList.add('hidden');
+}
+
+function skipTutorial() {
+  closeTutorial();
+  try { localStorage.setItem(TOUR_SEEN_KEY, '1'); } catch (e) {}
+}
+
+function maybeAutoLaunchTutorial() {
+  let seen = false;
+  try { seen = !!localStorage.getItem(TOUR_SEEN_KEY); } catch (e) { return; }
+  if (seen) {
+    document.getElementById('tutorial-badge')?.classList.add('hidden');
+    return;
+  }
+  setTimeout(openTutorial, 700);
 }
 
 // ── Tabs móvil ────────────────────────────────────────────────────
@@ -1666,9 +2870,29 @@ document.addEventListener('DOMContentLoaded', () => {
 
   updateProgress();
 
+  // Fila completa clickeable para editar, no solo el ícono de lápiz (antes
+  // pasaba desapercibido que se podía editar -- bug real reportado).
+  document.querySelectorAll('.attr-row[data-attr]').forEach(row => {
+    if (row.dataset.readonly) return;
+    row.classList.add('cursor-pointer');
+    row.addEventListener('click', (e) => {
+      if (e.target.closest('.attr-edit-wrap') || e.target.closest('.attr-edit-btn')) return;
+      startEdit(row.dataset.attr);
+      _tourNotify('attr-edit');
+    });
+  });
+
   // Cargar valores de dropdowns para autocompletado
   apiFetch('/api/dropdowns')
     .then(r => r && r.ok ? r.json() : {})
     .then(data => { Object.assign(dropdowns, data); })
     .catch(() => {});
+
+  // La conversación activa arranca siempre en blanco (ver SESSION_ID más
+  // arriba) -- solo hay que traer la lista de conversaciones guardadas
+  // para el sidebar, no restaurar ninguna en particular.
+  loadSessionsList();
+
+  // Tutorial automático (saltable) para quien abre esta pestaña por primera vez
+  maybeAutoLaunchTutorial();
 });

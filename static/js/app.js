@@ -1532,11 +1532,15 @@ function toggleCompare(key) {
 
 function renderCompareBar() {
   const btn = document.getElementById('compare-bar-btn');
+  const badge = document.getElementById('compare-count-badge');
   const count = document.getElementById('compare-count');
-  if (!btn || !count) return;
+  if (!btn || !badge || !count) return;
   const n = state.compareItems.length;
-  count.textContent = `${n}/${MAX_COMPARE}`;
+  count.textContent = n;
+  btn.title = `Comparar equipos marcados (${n}/${MAX_COMPARE})`;
   const hasItems = n > 0;
+  badge.classList.toggle('hidden', !hasItems);
+  badge.classList.toggle('flex', hasItems);
   btn.classList.toggle('bg-brand-700', hasItems);
   btn.classList.toggle('hover:bg-brand-800', hasItems);
   btn.classList.toggle('shadow-brand-900/20', hasItems);

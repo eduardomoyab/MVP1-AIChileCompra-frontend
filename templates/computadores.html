@@ -105,6 +105,17 @@
       </aside>
     </div>
 
+    <!-- Envuelve chat+ficha (sin el sidebar) para que la barra flotante del
+         comparador (más abajo) pueda centrarse relativa a ESTOS 2 paneles en
+         vez del viewport completo -- un elemento "fixed" toma como
+         referencia al ancestro con transform más cercano, no el viewport,
+         si ese ancestro tiene cualquier transform (truco CSS estándar). Sin
+         esto, centrar con left:50% quedaba centrado en TODA la pantalla,
+         que ya no coincide con el centro de chat+ficha desde que el
+         sidebar ocupa espacio a la izquierda (bug reportado: la barra
+         terminaba tapando el input del chat). -->
+    <div class="relative flex-1 flex flex-col lg:flex-row overflow-hidden" style="transform: translateZ(0);">
+
     <!-- ─── PANEL CHAT ──────────────────────────────────────────── -->
     <section id="panel-chat" class="relative flex-1 flex flex-col border-r border-slate-200 bg-white overflow-hidden lg:flex-none lg:w-[46%]">
 
@@ -739,7 +750,11 @@
             </div>
           </div>
 
-          <div class="h-2"></div>
+          <!-- Espacio extra abajo -- la barra flotante del comparador está
+               anclada abajo a la derecha, encima de esta zona; sin este
+               colchón, la última tarjeta al hacer scroll hasta el fondo
+               quedaba tapada detrás del botón. -->
+          <div class="h-16"></div>
 
         </div><!-- /ficha body -->
 
@@ -747,21 +762,34 @@
 
     </section><!-- /ficha panel -->
 
-  </main>
+    <!-- ─── Barra flotante del comparador de candidatos ───────────────── -->
+    <!-- Siempre visible (antes se ocultaba en 0 -- eso generaba una
+         contradicción real: si el usuario ya tenía una selección guardada de
+         una sesión anterior, la barra reaparecía con datos "de la nada" en
+         vez de estar siempre ahí como referencia). Vacía se ve gris/apagada;
+         con candidatos, azul institucional. Anclada abajo a la DERECHA (no
+         centrada) -- centrada seguía topando con algo siempre: el input del
+         chat a la izquierda o el contenido de la ficha a la derecha, uno de
+         los dos. A la derecha nunca se cruza con el input del chat (está en
+         el lado opuesto) y coincide con el lado por el que se abre el
+         panel del comparador. Sigue dentro del wrapper de chat+ficha (ver
+         su comentario) por consistencia, aunque acá el borde derecho del
+         wrapper ya coincide con el borde derecho de la pantalla. -->
+    <div id="compare-bar" class="fixed bottom-5 right-5 z-30">
+      <button id="compare-bar-btn" onclick="openCompareModal()" title="Comparar equipos marcados"
+              class="relative flex items-center justify-center w-14 h-14 text-white rounded-full shadow-lg transition-colors bg-slate-400 hover:bg-slate-500 shadow-slate-900/10">
+        <svg class="w-6 h-6" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 3h1.386c.51 0 .955.343 1.087.835l.383 1.437M7.5 14.25a3 3 0 00-3 3h15.75m-12.75-3h11.218c1.121-2.3 1.8-4.798 1.974-7.398a1.5 1.5 0 00-1.469-1.602H5.106M7.5 14.25L5.106 5.25M7.5 14.25L4.856 5.25m0 0L4.5 3.75M9 20.25a.75.75 0 11-1.5 0 .75.75 0 011.5 0zm9.75 0a.75.75 0 11-1.5 0 .75.75 0 011.5 0z"/>
+        </svg>
+        <span id="compare-count-badge" class="hidden absolute -top-1 -right-1 min-w-[20px] h-5 px-1 items-center justify-center rounded-full bg-rose-500 text-white text-[10.5px] font-bold border-2 border-white">
+          <span id="compare-count">0</span>
+        </span>
+      </button>
+    </div>
 
-  <!-- ─── Barra flotante del comparador de candidatos ───────────────── -->
-  <!-- Siempre visible (antes se ocultaba en 0 -- eso generaba una
-       contradicción real: si el usuario ya tenía una selección guardada de
-       una sesión anterior, la barra reaparecía con datos "de la nada" en
-       vez de estar siempre ahí como referencia). Vacía se ve gris/apagada;
-       con candidatos, azul institucional. -->
-  <div id="compare-bar" class="fixed bottom-5 left-1/2 -translate-x-1/2 z-30">
-    <button id="compare-bar-btn" onclick="openCompareModal()" title="Comparar equipos marcados"
-            class="flex items-center gap-2.5 pl-4 pr-5 py-3 text-white rounded-full shadow-lg transition-colors bg-slate-400 hover:bg-slate-500 shadow-slate-900/10">
-      <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 17V7m6 10V7M5 21h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v14a2 2 0 002 2z"/></svg>
-      <span class="text-[13.5px] font-semibold">Comparar (<span id="compare-count">0/10</span>)</span>
-    </button>
-  </div>
+    </div><!-- /wrapper chat+ficha -->
+
+  </main>
 
   <!-- ─── Panel lateral del comparador de candidatos ─────────────────── -->
   <!-- Antes era un modal centrado con una sola tabla mezclando Convenio

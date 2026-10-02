@@ -302,6 +302,11 @@ def login():
         microsoft_login_enabled=current_app.config["MICROSOFT_LOGIN_ENABLED"],
         turnstile_enabled=bool(current_app.config.get("TURNSTILE_SITE_KEY")),
         turnstile_site_key=current_app.config.get("TURNSTILE_SITE_KEY", ""),
+        # "mp_invalido": vino de un intento fallido de SSO desde Mercado
+        # Público (ver login_mercadopublico) -- la plantilla usa esto para
+        # esconder los botones de Google/Microsoft, que no pintan nada para
+        # alguien que llegó por ese otro camino.
+        motivo=request.args.get("motivo", ""),
     )
 
 
@@ -401,14 +406,14 @@ def login_mercadopublico():
     token = request.form.get("token", "")
     codigo_onu = request.form.get("codigoONU", "")  # contexto no sensible (qué categoría de producto); no participa en el control de acceso
 
+    # El motivo="mp_invalido" ya le dice a login.html qué mensaje mostrar
+    # (ver login.html) -- no se usa flash() acá para no duplicar el aviso.
     claims = _verify_mp_token(token)
     if not claims:
-        flash("No pudimos validar tu sesión de Mercado Público. Intenta ingresar de nuevo.", "error")
-        return redirect(url_for("auth.login"))
+        return redirect(url_for("auth.login", motivo="mp_invalido"))
 
     if claims.get("tipoUsuario") != _MP_REQUIRED_TIPO_USUARIO:
-        flash("Esta cuenta no corresponde a un comprador de Mercado Público.", "error")
-        return redirect(url_for("auth.login"))
+        return redirect(url_for("auth.login", motivo="mp_invalido"))
 
     codigo_usuario = claims.get("codigoUsuario", "")
     codigo_organismo = claims.get("codigoOrganismo", "")

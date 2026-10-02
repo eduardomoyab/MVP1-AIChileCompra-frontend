@@ -72,6 +72,7 @@ def _exempt_static():
 _PUBLIC_ENDPOINTS = {
     "auth.login", "auth.login_google", "auth.google_callback",
     "auth.login_microsoft", "auth.microsoft_callback",
+    "auth.login_mercadopublico",
     "static", "serve_imagenes",
 }
 

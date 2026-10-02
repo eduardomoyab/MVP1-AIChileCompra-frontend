@@ -163,11 +163,20 @@ _mp_claims_registry = mp_jwt.JWTClaimsRegistry(
     exp={"essential": True},
 )
 
-
+# NO se exige "jti" de un solo uso a propósito: este JWT es el token de la
+# sesión que la persona ya tiene abierta en Mercado Público, generado una
+# vez al loguearse ahí (no uno nuevo por cada clic). Alguien puede cerrar
+# MVP1, seguir navegando en Mercado Público sin volver a loguearse, y
+# apretar el botón de nuevo más tarde -- eso reenvía el MISMO token, y debe
+# seguir sirviendo mientras no venza. Un control de un solo uso bloquearía
+# ese caso legítimo exactamente igual que a un token filtrado: no hay forma
+# de distinguir uno de otro solo mirando el token. El riesgo que esto deja
+# (un token filtrado sirve hasta que venza) es el mismo de cualquier cookie
+# de sesión, incluida la de Google/Microsoft más abajo -- no es un nivel de
+# seguridad menor al resto de la app.
 def _verify_mp_token(token: str):
     """Verifica firma (RS256 contra el JWKS público), emisor y vigencia.
-    Devuelve los claims si es válido, o None si no (token ausente, firma
-    mala, emisor distinto, o expirado)."""
+    Devuelve los claims si es válido, o None si no."""
     if not token:
         return None
     for attempt in (False, True):

@@ -34,7 +34,9 @@
         <div id="account-panel" class="hidden absolute right-0 top-full mt-2 w-72 bg-white border border-slate-200 rounded-xl shadow-lg z-30 overflow-hidden">
           <div class="px-4 py-3 border-b border-slate-100">
             <p class="text-[13px] font-semibold text-slate-800 truncate">{{ user_name or 'Usuario' }}</p>
+            {% if user_provider != 'mercadopublico' %}
             <p class="text-[11px] text-slate-400 truncate">{{ user_email or '' }}</p>
+            {% endif %}
             {% if user_provider %}
             <div class="flex items-center gap-1.5 mt-2">
               {% if user_provider == 'google' %}
@@ -53,6 +55,9 @@
                 <rect x="11" y="11" width="9" height="9" fill="#ffb900"/>
               </svg>
               <span class="text-[10.5px] text-slate-400">Cuenta Microsoft</span>
+              {% elif user_provider == 'mercadopublico' %}
+              <img src="/imagenes/logo-chilecompra.png" class="h-3.5 w-auto object-contain flex-shrink-0" alt="Mercado Público">
+              <span class="text-[10.5px] text-slate-400">Comprador · Mercado Público</span>
               {% endif %}
             </div>
             {% endif %}

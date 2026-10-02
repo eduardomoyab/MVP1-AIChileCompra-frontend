@@ -14,6 +14,7 @@ esta app no tiene concepto de admin/roles que lo justifique.
 """
 import os
 import re
+import time
 from functools import wraps
 
 import httpx
@@ -21,6 +22,9 @@ from authlib.integrations.flask_client import OAuth
 from flask import Blueprint, abort, current_app, flash, redirect, render_template, request, session, url_for
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
+from joserfc import jwt as mp_jwt
+from joserfc.errors import JoseError
+from joserfc.jwk import KeySet
 
 bp = Blueprint("auth", __name__)
 oauth = OAuth()
@@ -104,6 +108,82 @@ def _validate_ms_issuer(claims, value):
         tenant_id, allowed, claims.get("xms_edov"),
     )
     return allowed or edov
+
+
+# --- SSO delegado desde Mercado Público (login vía Clave Única, sept. 2026) -----
+#
+# U.Chile embebe esta app dentro de su propia plataforma; sus usuarios ya se
+# autenticaron en Mercado Público (que usa Clave Única por debajo). En vez de
+# pedirles loguearse de nuevo acá, su plataforma reenvía por POST (nunca por
+# URL -- se filtraría en logs/historial) el JWT de esa sesión, y nosotros
+# verificamos que sea auténtico.
+#
+# Confirmado con Carla Cáceres (Jefa Arquitectura y Desarrollo, ChileCompra)
+# contra dos JWT de prueba reales:
+#   - alg RS256 (asimétrico): podemos validar la firma nosotros solos, sin
+#     llamar a sus servidores en cada ingreso.
+#   - aud="account" / azp="mercadoPublicoClient": es el token de acceso
+#     GENÉRICO de su propio portal (Keycloak), no uno emitido pensando en
+#     esta app -- no existe una audiencia nuestra que validar. La garantía
+#     que sí nos da: solo alguien con sesión válida y reciente en Mercado
+#     Público puede producir uno con firma correcta.
+#   - No trae RUT ni correo verificado -- identificamos a la persona con
+#     codigoUsuario + codigoOrganismo (sí vienen, y son únicos).
+#   - No trae ningún flag de "habilitado para MVP1" -- ChileCompra todavía
+#     no definió ese mecanismo (pendiente en el mismo hilo). Mientras tanto,
+#     la política de acceso es: cualquier JWT válido con tipoUsuario=
+#     "Comprador". Revisar esto cuando definan el flag real.
+_MP_ISSUER = "https://balder.mercadopublico.cl/auth/realms/chilecomprarealm"
+_MP_JWKS_URL = f"{_MP_ISSUER}/protocol/openid-connect/certs"
+_MP_REQUIRED_TIPO_USUARIO = "Comprador"
+
+# Cache en memoria del proceso (mismo patrón que el Limiter de más arriba).
+# TTL largo porque estas llaves rotan muy rara vez -- si llega un JWT con un
+# "kid" que no está en el caché, se refresca una vez al toque (podría ser
+# justo una rotación) antes de rechazarlo. La actualización periódica
+# "de fondo" (en vez de a demanda) queda para más adelante, en otra parte.
+_MP_JWKS_TTL_SECONDS = 24 * 60 * 60
+_mp_jwks_cache = {"keyset": None, "fetched_at": 0.0}
+
+
+def _fetch_mp_jwks(force=False):
+    now = time.time()
+    if not force and _mp_jwks_cache["keyset"] and (now - _mp_jwks_cache["fetched_at"] < _MP_JWKS_TTL_SECONDS):
+        return _mp_jwks_cache["keyset"]
+    resp = httpx.get(_MP_JWKS_URL, timeout=10)
+    resp.raise_for_status()
+    keyset = KeySet.import_key_set(resp.json())
+    _mp_jwks_cache["keyset"] = keyset
+    _mp_jwks_cache["fetched_at"] = now
+    return keyset
+
+
+_mp_claims_registry = mp_jwt.JWTClaimsRegistry(
+    iss={"essential": True, "value": _MP_ISSUER},
+    exp={"essential": True},
+)
+
+
+def _verify_mp_token(token: str):
+    """Verifica firma (RS256 contra el JWKS público), emisor y vigencia.
+    Devuelve los claims si es válido, o None si no (token ausente, firma
+    mala, emisor distinto, o expirado)."""
+    if not token:
+        return None
+    for attempt in (False, True):
+        try:
+            keyset = _fetch_mp_jwks(force=attempt)
+            decoded = mp_jwt.decode(token, keyset)
+            _mp_claims_registry.validate(decoded.claims)
+            return decoded.claims
+        except JoseError:
+            if attempt:
+                current_app.logger.warning("JWT de Mercado Público inválido, expirado o con firma incorrecta")
+                return None
+            # Primer intento falló: podría ser un "kid" rotado que el caché
+            # todavía no tiene -- se reintenta una vez con el JWKS fresco.
+            continue
+    return None
 
 
 def init_oauth(app):
@@ -308,6 +388,42 @@ def microsoft_callback():
         return _no_access(email)
 
     return _start_session(email, name, "microsoft", sections, is_admin)
+
+
+@bp.route("/login/mercadopublico", methods=["POST"])
+@limiter.limit("40 per minute")
+def login_mercadopublico():
+    """Entrada vía SSO delegado: la plataforma de U.Chile autoenvía acá un
+    formulario POST con el JWT de la sesión de Mercado Público del usuario
+    (ver notas arriba de _verify_mp_token). No pasa por la whitelist de
+    correos de check_access() -- es una puerta paralela, gateada por la
+    firma de Mercado Público."""
+    token = request.form.get("token", "")
+    codigo_onu = request.form.get("codigoONU", "")  # contexto no sensible (qué categoría de producto); no participa en el control de acceso
+
+    claims = _verify_mp_token(token)
+    if not claims:
+        flash("No pudimos validar tu sesión de Mercado Público. Intenta ingresar de nuevo.", "error")
+        return redirect(url_for("auth.login"))
+
+    if claims.get("tipoUsuario") != _MP_REQUIRED_TIPO_USUARIO:
+        flash("Esta cuenta no corresponde a un comprador de Mercado Público.", "error")
+        return redirect(url_for("auth.login"))
+
+    codigo_usuario = claims.get("codigoUsuario", "")
+    codigo_organismo = claims.get("codigoOrganismo", "")
+    # No hay correo (ni verificado) en este JWT -- se arma un identificador
+    # sintético y se reutiliza el campo "email" de la sesión tal cual, para
+    # no tener que tocar usage_service/analytics_service/chat_session_service
+    # en el backend: todos ellos ya tratan x-user-email como una llave
+    # opaca, sin exigirle formato de correo.
+    identity = f"mp:{codigo_usuario}_{codigo_organismo}"
+    name = claims.get("name") or identity
+
+    response = _start_session(identity, name, "mercadopublico", sections=None, is_admin=False)
+    if codigo_onu:
+        session["codigo_onu"] = codigo_onu  # _start_session ya limpió la sesión antes; esto va después para no perderse
+    return response
 
 
 @bp.route("/logout")

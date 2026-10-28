@@ -412,6 +412,15 @@ def login_mercadopublico():
     (ver notas arriba de _verify_mp_token). No pasa por la whitelist de
     correos de check_access() -- es una puerta paralela, gateada por la
     firma de Mercado Público."""
+    # Un intento de login acá es un evento de autenticación nuevo -- si ya
+    # había una sesión activa (de un login anterior, exitoso o no, en esta
+    # misma pestaña/navegador) y este token resulta inválido, no debe
+    # quedar vigente la sesión vieja. Sin este clear(), rechazar un token
+    # malo simplemente rebotaba a /login, que a su vez veía la sesión
+    # anterior todavía viva y te mandaba de vuelta adentro con esa otra
+    # identidad -- parecía que el token inválido "igual dejaba entrar".
+    session.clear()
+
     token = request.form.get("token", "")
     codigo_onu = request.form.get("codigoONU", "")  # contexto no sensible (qué categoría de producto); no participa en el control de acceso
 

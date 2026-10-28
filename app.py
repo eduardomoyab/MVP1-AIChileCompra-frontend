@@ -153,6 +153,19 @@ def computadores():
     return render_template("computadores.html", **_account_context())
 
 
+@app.route("/computadores/legacy")
+def computadores_legacy():
+    # LEGACY -- chat conversacional original de Computadores (anterior al
+    # wizard genérico, ver plan de implementación). Aislado a propósito en
+    # su propia ruta/template: borrar este bloque + computadores_legacy.html
+    # + static/js/app.js + agents/ficha_agent.py + los endpoints marcados
+    # LEGACY en main.py alcanza para retirar el módulo completo sin tocar
+    # nada del wizard nuevo.
+    if "computadores" not in _allowed_sections():
+        return _section_denied()
+    return render_template("computadores_legacy.html", **_account_context())
+
+
 @app.route("/medicamentos")
 def medicamentos():
     if "medicamentos" not in _allowed_sections():
@@ -177,6 +190,7 @@ def admin():
 _ALLOWED_PROXY_PREFIXES = {
     "chat", "manual_update", "cm_offers", "offers", "price_methodology", "track", "usage", "dropdowns",
     "medicamentos", "compare", "sessions", "admin",
+    "categories",  # wizard genérico por categoría (Fase 1: solo Computadores, ver plan)
 }
 
 

@@ -6,31 +6,7 @@
   <title>Asistente IA · Compras Públicas</title>
   <link rel="icon" href="/static/favicon.ico" type="image/x-icon">
 
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,300;0,400;0,500;0,600;0,700;1,400&display=swap" rel="stylesheet">
-
-  <script src="https://cdn.tailwindcss.com"></script>
-  <script>
-    tailwind.config = {
-      theme: {
-        extend: {
-          colors: {
-            brand: {
-              50:  '#e8f0fb',
-              100: '#c5d8f5',
-              200: '#9bbdee',
-              500: '#1e6cc5',
-              600: '#154f96',
-              700: '#0f3d78',
-              800: '#0a2d5e',
-              900: '#061e42',
-            }
-          }
-        }
-      }
-    }
-  </script>
+  {% include "_tailwind.html" %}
 
   <link rel="stylesheet" href="/static/css/style.css" />
   <style>
@@ -43,7 +19,7 @@
   </style>
 </head>
 
-<body class="h-screen flex flex-col bg-slate-100 overflow-hidden">
+<body class="h-screen flex flex-col bg-executive overflow-hidden">
 
   {% include "_header.html" %}
 

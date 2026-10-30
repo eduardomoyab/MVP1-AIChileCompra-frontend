@@ -69,6 +69,7 @@ let clarifyNotice = null;     // {message, question} -- la IA no pudo resolver p
 // existe en la primerísima pantalla -- para cuando se llega al resumen (o
 // a la vista previa del documento) ya no está en el DOM.
 let currentTextoOriginal = '';
+let analyzingNow = false;  // mientras analiza el texto no se repinta la pantalla (borraba el formulario y la capa de carga)
 // "Unidad" es un código genérico que distintos organismos usan para la
 // misma compra que otros etiquetan con la forma específica (Comprimido,
 // Cápsula, etc.) -- el backend lo detecta y expande el filtro solo (ver
@@ -128,6 +129,12 @@ function analizar() {
   btn.disabled = true;
   icon.classList.add('animate-spin');
   hint.textContent = 'Analizando...';
+  analyzingNow = true;
+  showAnalyzing(btn, [
+    'Leyendo tu requerimiento...',
+    'Identificando principio activo y presentación...',
+    'Preparando los pasos de la ficha...',
+  ]);
   clarifyNotice = null;
 
   apiFetch(`/api/medicamentos/analizar/${SESSION_ID}`, {
@@ -137,6 +144,7 @@ function analizar() {
   })
     .then(res => res ? readSSEStream(res, handleMedEvent) : null)
     .then(() => {
+      analyzingNow = false;
       showingTextScreen = false;
       renderScreen();
     })
@@ -144,6 +152,8 @@ function analizar() {
     .finally(() => {
       btn.disabled = false;
       icon.classList.remove('animate-spin');
+      analyzingNow = false;
+      hideAnalyzing(btn);
     });
 }
 
@@ -361,7 +371,7 @@ function updateProgressBar() {
   for (let i = 0; i < TOTAL_STEPS; i++) {
     let cls = 'bg-slate-200';
     if (companionsPending && i === 0) cls = 'bg-violet-500';
-    else if (i < currentStepIndex) cls = 'bg-emerald-500';
+    else if (i < currentStepIndex) cls = 'bg-brand-800';
     else if (i === currentStepIndex) cls = 'bg-brand-600';
     segs.push(`<div class="h-1 flex-1 rounded-full ${cls} transition-colors"></div>`);
   }
@@ -389,6 +399,7 @@ function renderPriceMini() {
 /* ── Render de la pantalla activa ────────────────────────────────── */
 
 function renderScreen() {
+  if (analyzingNow) return;
   updateProgressBar();
   renderPriceMini();
   renderDocPreview();
@@ -413,6 +424,7 @@ function renderScreen() {
   screenEl.classList.remove('med-screen-enter');
 
   bindScreenEvents();
+  if (showingTextScreen) bindTextoLibre(document.getElementById('med-texto-input'), document.getElementById('med-texto-count'));
 
   if (!showingTextScreen && !companionsPending && currentStepIndex < CORE_STEPS.length) {
     const attr = CORE_STEPS[currentStepIndex];
@@ -426,20 +438,22 @@ function renderScreen() {
 
 function textoScreenHtml() {
   return `
-    <div class="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm text-center">
-      <h1 class="text-lg font-semibold text-slate-800 mb-1.5">¿Qué medicamento necesitas?</h1>
-      <p class="text-[13px] text-slate-500 mb-5">Nombre comercial o genérico, principio activo, o una descripción con varias especificaciones.</p>
+    <div class="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
+      <h1 class="text-[22px] font-semibold text-slate-900 tracking-tight mb-1.5">¿Qué medicamento necesitas?</h1>
+      <p class="text-[14px] text-slate-500 leading-relaxed mb-6">Nombre comercial o genérico, principio activo, o una descripción con varias especificaciones.</p>
       <textarea id="med-texto-input" rows="3" placeholder="Escribe acá..."
                 class="w-full resize-none bg-slate-50 border border-slate-200 rounded-lg px-3.5 py-2.5 text-[14px] text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500 focus:bg-white transition-all text-left"></textarea>
-      <p id="med-analizar-hint" class="text-[11.5px] text-slate-400 mt-2 text-left min-h-[16px]"></p>
+      <div class="flex items-start justify-between gap-3 mt-2">
+        <p id="med-analizar-hint" class="flex-1 min-w-0 text-[11.5px] text-slate-400 text-left min-h-[16px]"></p>
+        <span id="med-texto-count" class="flex-shrink-0 text-[11.5px] text-slate-400 tabular-nums" aria-live="polite">0 / 1.000</span>
+      </div>
       <button id="med-analizar-btn" type="button"
               class="w-full mt-3 flex items-center justify-center gap-1.5 px-4 py-3 bg-brand-600 hover:bg-brand-700 text-white text-[14px] font-semibold rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
-        <svg id="med-analizar-icon" class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z"/>
-        </svg>
+        <span id="med-analizar-icon" class="hidden"></span>
         Analizar
       </button>
-      <button type="button" data-skip-to-manual class="w-full mt-2 text-[12px] text-slate-400 hover:text-brand-600 transition-colors">o elige el principio activo directamente →</button>
+      <div class="flex items-center gap-3 mt-4 mb-1"><div class="flex-1 h-px bg-slate-200"></div><span class="text-[10.5px] uppercase tracking-[0.14em] text-slate-400">o</span><div class="flex-1 h-px bg-slate-200"></div></div>
+      <button type="button" data-skip-to-manual class="w-full mt-2 py-2.5 text-[13px] font-medium text-brand-700 hover:bg-brand-50 border border-transparent hover:border-brand-100 rounded-lg transition-colors">Elegir el principio activo directamente →</button>
     </div>`;
 }
 
@@ -450,10 +464,11 @@ function stepScreenHtml(attr, index) {
 
   if (hasAiPending) {
     return `
-      <div class="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm text-center">
-        <p class="text-[11px] font-semibold text-brand-600 uppercase tracking-wide mb-4">${STEP_LABELS[attr]}</p>
-        <p class="text-[15px] text-slate-600 mb-1">Vimos que necesitas</p>
-        <p class="text-[20px] font-bold text-slate-900 mb-5">${formatAttrValue(current.value)}</p>
+      <div class="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
+        <span class="inline-flex items-center text-[10.5px] font-semibold text-brand-700 bg-brand-50 border border-brand-100 rounded-full px-2.5 py-1 mb-3">Sugerido por IA</span>
+        <h2 class="text-[22px] font-semibold text-brand-800 tracking-tight mb-4">${STEP_LABELS[attr]}</h2>
+        <p class="text-[14px] text-slate-500 mb-1">Vimos que necesitas</p>
+        <p class="text-[26px] font-semibold text-slate-900 tracking-tight mb-6">${formatAttrValue(current.value)}</p>
         <div class="flex gap-2">
           <button type="button" data-confirm="${attr}" class="flex-1 py-2.5 bg-brand-600 hover:bg-brand-700 text-white text-[13.5px] font-semibold rounded-lg transition-colors">Sí, es correcto</button>
           <button type="button" data-choose="${attr}" class="px-4 py-2.5 bg-white border border-slate-200 hover:border-brand-300 text-slate-600 text-[13.5px] font-medium rounded-lg transition-colors">Elegir otro</button>
@@ -478,11 +493,13 @@ function stepScreenHtml(attr, index) {
 
   return `
     <div class="bg-white border border-slate-200 rounded-2xl p-7 shadow-sm">
-      <div class="flex items-center gap-2 mb-1">
-        <p class="text-[11px] font-semibold text-brand-600 uppercase tracking-wide flex-1">${STEP_LABELS[attr]}</p>
-        ${!NO_SKIP_STEPS.has(attr) ? `<button type="button" data-skip="${attr}" class="text-[11px] text-slate-400 hover:text-slate-600">omitir</button>` : ''}
+      <div class="flex items-center gap-2.5">
+        <span class="step-badge">${index + 1}</span>
+        <p class="text-[11px] font-semibold text-brand-600 uppercase tracking-wide">${STEP_LABELS[attr]}</p>
+        <span class="ml-auto text-[11px] text-slate-400">Paso ${index + 1} de ${CORE_STEPS.length}</span>
+        ${!NO_SKIP_STEPS.has(attr) ? `<button type="button" data-skip="${attr}" class="text-[11px] font-medium text-slate-400 hover:text-brand-700 border-l border-slate-200 pl-2.5">omitir</button>` : ''}
       </div>
-      <p class="text-[13px] text-slate-400 mb-3">${pickerCaption(attr)}</p>
+      <p class="step-title">${pickerCaption(attr)}</p>
       ${notice}
       <div class="flex flex-wrap gap-2 mb-3 min-h-[30px]" data-chips="${attr}">
         ${cachedChips ? chipsOrPriceListHtml(attr, cachedChips) : chipsLoadingHtml(attr)}
@@ -696,17 +713,7 @@ function chipsLoadingHtml(attr) {
   const gen = LOADING_MESSAGES[attr];
   const pool = gen ? gen() : ['Buscando sugerencias...'];
   const msg = pool[Math.floor(Math.random() * pool.length)];
-  const isCompanion = attr === 'principio_activo_companion';
-  const spinnerColor = isCompanion ? 'text-violet-500' : 'text-brand-500';
-  const textColor = isCompanion ? 'text-violet-700' : 'text-brand-700';
-  return `
-    <div class="w-full flex items-center gap-3 py-2.5">
-      <svg class="w-5 h-5 ${spinnerColor} animate-spin flex-shrink-0" fill="none" viewBox="0 0 24 24">
-        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="3"></circle>
-        <path class="opacity-90" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
-      </svg>
-      <span class="text-[14.5px] font-semibold ${textColor}">${escapeHtml(msg)}</span>
-    </div>`;
+  return loadingBlockHtml(msg);
 }
 
 function animateIn(el) {
@@ -1020,22 +1027,47 @@ function renderPricePanel() {
 
 /* ── Historial (dentro de la pantalla de resumen) ───────────────── */
 
+let historialResults = [];
+let historialPage = 0;
+const HISTORIAL_PAGE = 5;
+
+function renderHistorialPage() {
+  const el = document.getElementById('med-historial-results');
+  if (!el) return;
+  const pages = Math.max(1, Math.ceil(historialResults.length / HISTORIAL_PAGE));
+  historialPage = Math.max(0, Math.min(historialPage, pages - 1));
+  const slice = historialResults.slice(historialPage * HISTORIAL_PAGE, (historialPage + 1) * HISTORIAL_PAGE);
+  el.innerHTML = slice.map(historialCardHtml).join('') + (pages > 1 ? `
+    <div class="flex items-center justify-between pt-2.5 mt-1 border-t border-slate-100">
+      <button type="button" data-historial-page="-1" ${historialPage <= 0 ? 'disabled' : ''} class="text-[11px] font-medium px-2.5 py-1.5 rounded-md border border-slate-200 text-slate-600 hover:border-brand-300 hover:text-brand-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors">← Anterior</button>
+      <span class="text-[11px] text-slate-400">Página ${historialPage + 1} de ${pages} · ${historialResults.length} productos</span>
+      <button type="button" data-historial-page="1" ${historialPage >= pages - 1 ? 'disabled' : ''} class="text-[11px] font-medium px-2.5 py-1.5 rounded-md border border-slate-200 text-slate-600 hover:border-brand-300 hover:text-brand-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors">Siguiente →</button>
+    </div>` : '');
+}
+
 function loadHistorial() {
   const sortEl = document.getElementById('med-historial-sort');
   const resultsEl = document.getElementById('med-historial-results');
   if (!sortEl || !resultsEl) return;
   const sort = sortEl.value;
   resultsEl.innerHTML = `<p class="text-[12px] text-slate-400 text-center py-6">Cargando...</p>`;
+  resultsEl.onclick = (e) => {
+    const btn = e.target.closest('[data-historial-page]');
+    if (!btn || btn.disabled) return;
+    historialPage += Number(btn.dataset.historialPage);
+    renderHistorialPage();
+  };
   apiFetch(`/api/medicamentos/historial/${SESSION_ID}?sort=${encodeURIComponent(sort)}`, { headers: _headers() })
     .then(r => r && r.ok ? r.json() : null)
     .then(data => {
       if (!data) return;
-      const results = data.results || [];
-      if (!results.length) {
+      historialResults = data.results || [];
+      historialPage = 0;
+      if (!historialResults.length) {
         resultsEl.innerHTML = `<p class="text-[12px] text-slate-400 text-center py-6">No hay compras registradas para esta combinación.</p>`;
         return;
       }
-      resultsEl.innerHTML = results.map(historialCardHtml).join('');
+      renderHistorialPage();
     })
     .catch(() => {
       resultsEl.innerHTML = `<p class="text-[12px] text-red-400 text-center py-6">No se pudo cargar el historial.</p>`;
@@ -1050,7 +1082,7 @@ function historialCardHtml(m) {
   const url = (m.ca_urls || [])[0];
   return `
     <div class="bg-slate-50 border border-slate-100 rounded-lg px-3 py-2.5">
-      <p class="text-[12.5px] font-medium text-slate-700 leading-snug">${escapeHtml(m.nombre_producto || 'Sin nombre')}</p>
+      <p class="tx-desc text-[12.5px] font-medium text-slate-700 leading-snug">${escapeHtml(m.nombre_producto || 'Sin nombre')}</p>
       <div class="flex items-center justify-between mt-1">
         <p class="text-[11px] text-slate-400">${meta}</p>
         <p class="text-[12.5px] font-semibold text-slate-600">${m.precio_mediana != null ? formatCLP(m.precio_mediana) : '—'}</p>
@@ -1093,49 +1125,39 @@ function renderDocPreview() {
   ATTR_ORDER.forEach(a => { if (ficha[a]?.value != null && ficha[a]?.value !== '') draftAttrs[a] = ficha[a].value; });
   const hasDraft = !showingTextScreen && Object.keys(draftAttrs).length > 0;
 
-  // .pdf-wrap/.hdr/.ftr/.req* están definidas en medicamentos.html,
-  // compartidas con el PDF real -- este es el documento de verdad
-  // renderizado en la página, misma estructura que arma buildAndSavePDF().
   if (!cart.length && !hasDraft) {
     wrap.innerHTML = `
-      <div class="pdf-wrap" style="border-radius:6px; box-shadow:0 1px 3px rgba(0,0,0,.08);">
-        <div class="hdr">
-          ${DOC_LOGO_HTML}
-          <h1>Requerimientos de Compra — Medicamentos</h1>
-          <p>Asistente IA Compras Públicas</p>
-        </div>
-        <p style="font-size:12px; color:#94a3b8; text-align:center; padding:32px 0;">A medida que vayas armando requerimientos, acá vas a ver el documento tomando forma.</p>
+      <div class="pdf-wrap">
+        <div class="doc-logo">${DOC_LOGO_HTML}</div>
+        <h1>Especificaciones técnicas</h1>
+        <p class="doc-empty">A medida que vayas armando requerimientos, acá vas a ver el documento tomando forma.</p>
       </div>`;
     return;
   }
 
   const fecha = new Date().toLocaleDateString('es-CL', { year: 'numeric', month: 'long', day: 'numeric' });
-
-  // Mismo bloque que usa el PDF real (reqBlockHtml) -- así la vista previa
-  // es literalmente cómo se va a ver el documento, no una versión aparte
-  // que se puede desincronizar.
-  const sections = cart.map((item, i) => reqBlockHtml(item.texto_original, item.atributos, item.price, item.descripcion, i + 1)).join('');
-
-  const priceHintHtml = (!priceData && priceHintDesde != null)
-    ? `<p style="font-size:11px; font-weight:700; color:#047857; margin-top:4px;">Desde ${formatCLP(priceHintDesde)} c/u -- varía según unidad de compra</p>`
-    : '';
+  const referencia = 'REQ-' + (String(SESSION_ID).replace(/-/g, '').slice(0, 6).toUpperCase() || '000000');
+  const nItems = cart.length + (hasDraft ? 1 : 0);
+  const sections = cart.map((item, i) => reqBlockHtml(item, i + 1)).join('');
   const draftHtml = hasDraft ? `
-    <div class="req" style="border:1.5px dashed #93c5fd; background:#eff6ff; border-radius:8px; padding:10px 12px;">
-      <p style="font-size:9px; font-weight:700; color:#1e6cc5; text-transform:uppercase; letter-spacing:.03em; margin:0 0 6px;">En construcción</p>
-      ${reqBlockHtml(currentTextoOriginal, draftAttrs, priceData, null, cart.length + 1)}
-      ${priceHintHtml}
+    <div class="req-draft">
+      <p class="req-draft-tag">En construcción</p>
+      ${reqBlockHtml({ nombre: null, atributos: draftAttrs, descripcion: null }, cart.length + 1)}
     </div>` : '';
 
   wrap.innerHTML = `
-    <div class="pdf-wrap" style="border-radius:6px; box-shadow:0 1px 3px rgba(0,0,0,.08);">
-      <div class="hdr">
-        ${DOC_LOGO_HTML}
-        <h1>Requerimientos de Compra — Medicamentos</h1>
-        <p>Generado el ${fecha} · Asistente IA Compras Públicas</p>
+    <div class="pdf-wrap">
+      <div class="doc-logo">${DOC_LOGO_HTML}</div>
+      <h1>Especificaciones técnicas</h1>
+      <div class="doc-meta">
+        <div><span>Fecha de emisión</span><b>${escapeHtml(fecha)}</b></div>
+        <div><span>Referencia</span><b>${escapeHtml(referencia)}</b></div>
+        <div><span>Categoría</span><b>Medicamentos</b></div>
+        <div><span>Compras</span><b>${nItems}</b></div>
       </div>
       ${sections}
       ${draftHtml}
-      <div class="ftr">Estimaciones de precio basadas en historial de compras Compra Ágil.</div>
+      <div class="ftr">Documento generado por el Asistente IA · Compras Públicas</div>
     </div>`;
 }
 
@@ -1173,7 +1195,10 @@ function describeItem(item) {
     body: JSON.stringify({ items: [{ texto_original: item.texto_original, atributos: item.atributos }] }),
   })
     .then(r => r && r.ok ? r.json() : null)
-    .then(data => (data && data.descripciones && data.descripciones[0]) || null)
+    .then(data => data ? {
+      descripcion: (data.descripciones && data.descripciones[0]) || null,
+      nombre: (data.nombres && data.nombres[0]) || null,
+    } : null)
     .catch(() => null);
 }
 
@@ -1189,15 +1214,17 @@ function agregarRequerimiento() {
     texto_original,
     atributos,
     price: priceData,
+    cantidad: Number(atributos.cantidad_requerida) > 0 ? Number(atributos.cantidad_requerida) : 1,
   };
   cart.push(item);
   saveCart();
   renderCartBar();
   empezarNuevoRequerimiento();
 
-  describeItem(item).then(desc => {
-    if (!desc) return;
-    item.descripcion = desc;
+  describeItem(item).then(res => {
+    if (!res) return;
+    if (res.descripcion) item.descripcion = res.descripcion;
+    if (res.nombre) item.nombre = res.nombre;
     saveCart();
     renderDocPreview();
     renderCartPanel();
@@ -1218,36 +1245,47 @@ function cartItemAttrsHtml(atributos) {
    nunca pasa descripcion (esa la genera la IA solo al descargar el PDF de
    verdad -- generarla en vivo gastaría tokens en cada tecleo). ──────── */
 
-function reqAttrsRowsHtml(atributos) {
-  return ATTR_ORDER
-    .filter(a => atributos[a] != null && atributos[a] !== '')
-    .map(a => {
-      const v = atributos[a];
-      return `<tr><td class="lbl">${ATTR_LABELS[a]}</td><td class="val">${Array.isArray(v) ? v.join(' + ') : escapeHtml(v)}</td></tr>`;
-    })
+// Título del ítem: el nombre corto generado por el modelo; mientras no llega
+// (o si falla), principio activo + forma + concentración.
+function itemTitleMed(item) {
+  if (item.nombre) return item.nombre;
+  const a = item.atributos || {};
+  const parts = ['principio_activo', 'forma_farmaceutica', 'concentracion']
+    .filter(k => a[k] != null && a[k] !== '' && !(Array.isArray(a[k]) && !a[k].length))
+    .map(k => attrTextMed(k, a[k]));
+  return parts.join(' · ') || 'Medicamento requerido';
+}
+
+// Varios principios activos son un producto combinado ("+"), no alternativas.
+function attrTextMed(k, v) {
+  return Array.isArray(v) ? v.join(k === 'principio_activo' ? ' + ' : ' o ') : String(v);
+}
+
+function joinEsMed(list) {
+  return list.length <= 1 ? list.join('') : list.slice(0, -1).join(', ') + ' y ' + list[list.length - 1];
+}
+
+function reqBlockHtml(item, index) {
+  const a = item.atributos || {};
+  const specs = ATTR_ORDER.filter(k => k !== 'cantidad_requerida' && a[k] != null && a[k] !== '' && !(Array.isArray(a[k]) && !a[k].length));
+  const rows = specs
+    .map(k => `<tr><td class="lbl">${escapeHtml(ATTR_LABELS[k] || k)}</td><td class="val">${escapeHtml(attrTextMed(k, a[k]))}</td></tr>`)
     .join('');
-}
-
-function reqPriceRowsHtml(price, atributos) {
-  if (!price) return '';
-  const cantidadReq = atributos.cantidad_requerida;
-  const netoTxt = price.mediana_neto != null ? ` &nbsp;·&nbsp; ${formatCLP(price.mediana_neto)} sin IVA` : '';
-  const precioRow = `<tr><td class="lbl">Precio unitario</td><td class="val">${formatCLP(price.mediana)} con IVA${netoTxt}</td></tr>`;
-  let totalRow = '';
-  if (cantidadReq) {
-    const totalNetoTxt = price.mediana_neto != null ? ` &nbsp;·&nbsp; ${formatCLP(price.mediana_neto * cantidadReq)} sin IVA` : '';
-    totalRow = `<tr><td class="lbl">Total estimado (${cantidadReq})</td><td class="val">${formatCLP(price.mediana * cantidadReq)} con IVA${totalNetoTxt}</td></tr>`;
-  }
-  return precioRow + totalRow;
-}
-
-function reqBlockHtml(texto, atributos, price, descripcion, index) {
+  const free = ATTR_ORDER
+    .filter(k => k !== 'cantidad_requerida' && !specs.includes(k))
+    .map(k => String(ATTR_LABELS[k] || k).charAt(0).toLowerCase() + String(ATTR_LABELS[k] || k).slice(1));
+  const qty = Number(item.cantidad) > 0 ? Number(item.cantidad) : (Number(a.cantidad_requerida) > 0 ? Number(a.cantidad_requerida) : 1);
   return `
     <div class="req">
-      <p class="req-title">Requerimiento ${index}</p>
-      <p class="req-texto"><span style="font-style:normal; font-weight:700; color:#334155;">Observación del comprador:</span> ${escapeHtml(texto || 'Sin observación')}</p>
-      ${descripcion ? `<p class="req-desc">${escapeHtml(descripcion)}</p>` : ''}
-      <table class="req-table">${reqAttrsRowsHtml(atributos)}${reqPriceRowsHtml(price, atributos)}</table>
+      <div class="req-head">
+        <span class="req-num">${String(index).padStart(2, '0')}</span>
+        <span class="req-name">${escapeHtml(itemTitleMed(item))}</span>
+        <span class="req-qty">Cantidad <b>${qty.toLocaleString('es-CL')}</b></span>
+      </div>
+      ${item.descripcion ? `<div class="req-descbox"><p class="req-lbl req-lbl-blue">Descripción del producto requerido</p><p>${escapeHtml(item.descripcion)}</p></div>` : ''}
+      <p class="req-lbl">Características técnicas requeridas</p>
+      <table class="req-table">${rows}</table>
+      ${free.length && rows ? `<p class="req-free"><b>Sin exigencia:</b> ${escapeHtml(joinEsMed(free))}.</p>` : ''}
     </div>`;
 }
 
@@ -1340,101 +1378,91 @@ document.getElementById('cart-empty-btn').addEventListener('click', () => {
   renderCartPanel();
 });
 
-/* ── Exportar PDF (client-side, html2pdf.js) ────────────────────── */
+/* ── Exportar PDF (backend, ReportLab) ──────────────────────────────────
+   Solo lleva lo técnico (qué se compra, cuánto, con qué características)
+   para adjuntarlo al requerimiento en ChileCompra. Los precios y las
+   comparaciones viven en el resumen ejecutivo. */
 
 function downloadRequerimientosPDF() {
   if (!cart.length) return;
   cartPdfBtn.disabled = true;
   cartPdfIcon.classList.add('animate-spin');
 
-  // La mayoría de los ítems ya tienen su descripción (se generó una vez al
-  // agregarlos, ver agregarRequerimiento/describeItem) -- acá solo se pide
-  // al LLM lo que todavía falte (ej. si la descarga se apuró antes de que
-  // terminara esa llamada, o ítems de una sesión vieja sin este campo).
-  const pendientes = cart.filter(i => !i.descripcion);
-  if (!pendientes.length) {
-    buildAndSavePDF(cart.map(i => i.descripcion || ''));
-    cartPdfBtn.disabled = false;
-    cartPdfIcon.classList.remove('animate-spin');
-    return;
-  }
+  // Nombre y descripción los genera el modelo; normalmente ya vienen del
+  // carrito (se piden al agregar el ítem). Solo se piden los que falten.
+  const pendientes = cart.filter(i => !i.descripcion || !i.nombre);
+  const ensure = pendientes.length
+    ? apiFetch('/api/medicamentos/describe', {
+        method: 'POST',
+        headers: _headers(),
+        body: JSON.stringify({ items: pendientes.map(i => ({ texto_original: i.texto_original, atributos: i.atributos })) }),
+      })
+        .then(r => r && r.ok ? r.json() : { descripciones: [], nombres: [] })
+        .then(data => {
+          pendientes.forEach((i, j) => {
+            if (!i.descripcion && data.descripciones?.[j]) i.descripcion = data.descripciones[j];
+            if (!i.nombre && data.nombres?.[j]) i.nombre = data.nombres[j];
+          });
+          saveCart();
+          renderDocPreview();
+        })
+        .catch(() => {})
+    : Promise.resolve();
 
-  const items = pendientes.map(i => ({ texto_original: i.texto_original, atributos: i.atributos }));
-
-  apiFetch('/api/medicamentos/describe', {
-    method: 'POST',
-    headers: _headers(),
-    body: JSON.stringify({ items }),
-  })
-    .then(r => r && r.ok ? r.json() : { descripciones: [] })
-    .then(data => {
-      const nuevas = data.descripciones || [];
-      let j = 0;
-      cart.forEach(i => { if (!i.descripcion) i.descripcion = nuevas[j++] || ''; });
-      saveCart();
-      buildAndSavePDF(cart.map(i => i.descripcion || ''));
+  ensure
+    .then(() => apiFetch('/api/medicamentos/pdf', {
+      method: 'POST',
+      headers: _headers(),
+      body: JSON.stringify({
+        session_id: SESSION_ID,
+        items: cart.map(i => ({
+          nombre: i.nombre || null,
+          texto_original: i.texto_original,
+          atributos: i.atributos,
+          descripcion: i.descripcion || null,
+          cantidad: Number(i.cantidad) > 0 ? Number(i.cantidad) : 1,
+        })),
+      }),
+    }))
+    .then(r => {
+      if (!r) return null;           // sesión vencida: apiFetch ya mostró el aviso
+      if (!r.ok) throw new Error(`PDF ${r.status}`);
+      return r.blob();
     })
-    .catch(() => buildAndSavePDF(cart.map(i => i.descripcion || '')))
+    .then(blob => {
+      if (!blob) return;
+      downloadBlob(blob, `especificaciones-tecnicas-medicamentos-${SESSION_ID.slice(0, 6).toLowerCase()}.pdf`);
+      fetch(`/api/track/${SESSION_ID}`, {
+        method: 'POST', headers: _headers(), body: JSON.stringify({ tipo: 'medicamento_pdf_download' }),
+      }).catch(() => {});
+    })
+    .catch(err => {
+      console.error('Error generando el PDF:', err);
+      alert('No pudimos generar el PDF. Intenta de nuevo en unos segundos.');
+    })
     .finally(() => {
       cartPdfBtn.disabled = false;
       cartPdfIcon.classList.remove('animate-spin');
     });
 }
 
-function buildAndSavePDF(descripciones) {
-  const fecha = new Date().toLocaleDateString('es-CL', { year: 'numeric', month: 'long', day: 'numeric' });
-
-  const itemsHtml = cart.map((item, i) => `
-    <div style="${i > 0 ? 'page-break-before:always;' : ''}">
-      ${reqBlockHtml(item.texto_original, item.atributos, item.price, descripciones[i], i + 1)}
-    </div>`).join('');
-
-  // .pdf-wrap/.hdr/.ftr/.req* ya están definidas en medicamentos.html,
-  // compartidas con la vista previa en vivo del panel lateral (ver
-  // reqBlockHtml/renderDocPreview) -- acá solo el reset de box-sizing, que
-  // no aplica en el resto de la página (Tailwind ya lo trae, pero este
-  // <div> queda fuera de pantalla y aislado del <body> normal).
-  const css = `* { box-sizing: border-box; }`;
-
-  const contentHtml = `
-    <div class="pdf-wrap">
-      <div class="hdr">
-        ${DOC_LOGO_HTML}
-        <h1>Requerimientos de Compra — Medicamentos</h1>
-        <p>Generado el ${fecha} · Asistente IA Compras Públicas</p>
-      </div>
-      ${itemsHtml}
-      <div class="ftr">Estimaciones de precio basadas en historial de compras Compra Ágil. Documento generado automáticamente.</div>
-    </div>`;
-
-  // Mismo patrón que downloadFichaPDF() en app.js (Computadores): el nodo
-  // que se le pasa a html2pdf() NO debe ser el contenedor position:fixed
-  // en sí (html2canvas lo captura vacío/mal recortado) -- se le pasa un
-  // div normal (wrapEl) anidado adentro, con el <style> como hermano.
-  const tmpEl = document.createElement('div');
-  tmpEl.style.cssText = 'position:fixed;top:0;left:-9999px;width:794px;background:white;z-index:-1;';
-  const styleEl = document.createElement('style');
-  styleEl.textContent = css;
-  const wrapEl = document.createElement('div');
-  wrapEl.innerHTML = contentHtml;
-  tmpEl.appendChild(styleEl);
-  tmpEl.appendChild(wrapEl);
-  document.body.appendChild(tmpEl);
-
-  fetch(`/api/track/${SESSION_ID}`, {
-    method: 'POST', headers: _headers(), body: JSON.stringify({ tipo: 'medicamento_pdf_download' }),
-  }).catch(() => {});
-
-  html2pdf().set({
-    margin: [8, 8, 8, 8],
-    filename: `requerimientos-medicamentos-${SESSION_ID.slice(0, 6).toLowerCase()}.pdf`,
-    image: { type: 'jpeg', quality: 0.97 },
-    html2canvas: { scale: 2, useCORS: true, logging: false },
-    jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
-  }).from(wrapEl).save().finally(() => {
-    document.body.removeChild(tmpEl);
-  });
-}
+/* ── Resumen ejecutivo (static/js/resumen.js lee esta configuración) ── */
+window.SUMMARY_CFG = {
+  label: () => 'Medicamentos',
+  logoHtml: () => DOC_LOGO_HTML,
+  marketPath: '/api/medicamentos/market',
+  hasCm: false,            // no hay Convenio Marco de medicamentos en la plataforma
+  hasRevisados: false,     // Medicamentos no tiene "productos revisados"
+  prov: ['laboratorio', 'laboratorios'],   // la base no trae el proveedor adjudicado: el equivalente es el laboratorio
+  sessionId: () => SESSION_ID,
+  qty: (it) => (it.cantidad != null ? it.cantidad : (it.atributos && it.atributos.cantidad_requerida)),
+  itemTitle: (it) => itemTitleMed(it),
+  price: (it) => (it.price ? { median: it.price.mediana, p25: it.price.p25, p75: it.price.p75, count: it.price.count } : null),
+  relaxed: () => [],
+  revisados: () => [],
+  closeCart: () => closeCartPanel(),
+  downloadPdf: () => downloadRequerimientosPDF(),
+};
 
 /* ── Wiring general ──────────────────────────────────────────────── */
 

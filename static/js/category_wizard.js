@@ -56,6 +56,8 @@ const rangeModeDraft = new Set(); // attrs mostrando el control de rango en vez 
 let clarifyNotice = null;       // {message, question} -- la IA no pudo resolver el primer paso core
 let offTopicNotice = null;      // string -- se llenó tipo_equipo="Otro" (ver handleOffTopicProduct), el aviso que se muestra al volver a la pantalla de texto
 let currentTextoOriginal = '';
+let analyzingNow = false;  // mientras analiza el texto no se repinta la pantalla (borraba el formulario y la capa de carga)
+let draftCantidad = 1;     // unidades de la compra en construcción (se guarda en el ítem al agregarla)
 let editingOptionalAttr = null; // attr de "detalles opcionales" en edición de a uno, o null (ver optionalAttrEditScreenHtml)
 
 // Tope de chips mostrados a la vez sin que el usuario haya escrito nada --
@@ -73,18 +75,39 @@ const priceMiniEl      = document.getElementById('wiz-price-mini');
 const backBtn          = document.getElementById('wiz-back-btn');
 const screenEl         = document.getElementById('wiz-screen');
 
-/* ── Carrito (sessionStorage) ────────────────────────────────────── */
-const CART_KEY = `cat_${CONFIG.slug}_requerimientos_v1`;
+/* ── Carrito (por formulario, persistido en el servidor) ─────────────────
+   Antes vivía en sessionStorage, GLOBAL por slug -- sin relación con
+   SESSION_ID. Reportes reales: "cuando presiono nuevo formulario, me
+   aparecen cosas... pre cargadas" / "cuando actualizo, también me sale
+   como de la última compra" -- el carrito "fantasma" de un formulario
+   anterior se colaba en cualquier sesión nueva, incluida la que se crea en
+   cada refresh (ver SESSION_ID arriba). Ahora el carrito es parte de la
+   ficha guardada de CADA formulario (ver category_session_service.py,
+   columna `cart`): "+ Nuevo formulario" arranca con 0 compras de verdad, y
+   retomar un formulario del historial (o recargar la página, ver
+   CURRENT_SESSION_KEY) trae de vuelta exactamente las compras de ESE
+   formulario. */
 let cart = [];
 
-function loadCart() {
-  try {
-    const raw = sessionStorage.getItem(CART_KEY);
-    cart = raw ? JSON.parse(raw) : [];
-  } catch (e) { cart = []; }
-}
 function saveCart() {
-  try { sessionStorage.setItem(CART_KEY, JSON.stringify(cart)); } catch (e) {}
+  apiFetch(`/api/categories/${CONFIG.slug}/sessions/${SESSION_ID}/cart`, {
+    method: 'POST',
+    headers: _headers(),
+    body: JSON.stringify({ cart }),
+  }).catch(() => {});
+}
+
+// Qué formulario estaba activo en esta pestaña -- lo único que sigue en
+// sessionStorage (no tiene sentido guardarlo server-side, es un detalle de
+// "qué estabas mirando en ESTE navegador"). Permite que recargar la página
+// retome el mismo formulario en vez de siempre arrancar uno nuevo en
+// blanco (ver DOMContentLoaded).
+const CURRENT_SESSION_KEY = `cat_${CONFIG.slug}_current_session_v1`;
+function rememberCurrentSession(sessionId) {
+  try { sessionStorage.setItem(CURRENT_SESSION_KEY, sessionId); } catch (e) {}
+}
+function getRememberedSession() {
+  try { return sessionStorage.getItem(CURRENT_SESSION_KEY); } catch (e) { return null; }
 }
 
 /* ── "Revisados" (en memoria, NO sessionStorage) ─────────────────────────
@@ -104,11 +127,16 @@ function saveCart() {
    revisados arranque vacío SIEMPRE, no que sobreviva a un refresh. */
 let revisados = [];
 
+/* Cada revisado nace en el borrador en curso (itemId == null) y, al agregar
+   la compra al requerimiento, queda asociado a ese ítem (itemId = id del
+   ítem del carrito) -- así el resumen ejecutivo compara cada producto con
+   el mercado de SU ítem. Los del borrador se descartan si el borrador se
+   descarta (ver resetWizardState). Sigue sin persistirse. */
 function isRevisado(source, key) {
-  return revisados.some(r => r.source === source && r.key === key);
+  return revisados.some(r => r.itemId == null && r.source === source && r.key === key);
 }
 function toggleRevisado(source, key, data) {
-  const idx = revisados.findIndex(r => r.source === source && r.key === key);
+  const idx = revisados.findIndex(r => r.itemId == null && r.source === source && r.key === key);
   if (idx >= 0) revisados.splice(idx, 1);
   else revisados.push({ source, key, ...data });
   renderRevisadosPanel();
@@ -127,7 +155,7 @@ function renderRevisadosPanel() {
       <p class="text-[10.5px] text-slate-400 mb-2">Guardados para comparar -- no se agregan a la cotización.</p>
       <div class="space-y-1.5 mb-2.5">
         ${revisados.map(r => `
-          <div class="flex items-center justify-between gap-2 bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5" data-revisado-key="${escapeHtml(r.source)}:${escapeHtml(r.key)}">
+          <div class="flex items-center justify-between gap-2 bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5" data-revisado-key="${escapeHtml(r.source)}:${escapeHtml(r.key)}" data-revisado-item="${escapeHtml(r.itemId || '')}">
             <div class="min-w-0 flex-1">
               <div class="flex items-center gap-1.5">
                 <span class="text-[9px] font-bold uppercase px-1.5 py-0.5 rounded flex-shrink-0 ${r.source === 'cm' ? 'bg-brand-100 text-brand-700' : 'bg-emerald-100 text-emerald-700'}">${r.source === 'cm' ? 'CM' : 'CA'}</span>
@@ -135,7 +163,7 @@ function renderRevisadosPanel() {
               </div>
               ${r.sub ? `<p class="text-[10px] text-slate-400 truncate mt-0.5">${escapeHtml(r.sub)}</p>` : ''}
             </div>
-            <span class="text-[11.5px] font-bold text-slate-700 flex-shrink-0">${formatCLP(r.price) || '—'}</span>
+            <span class="text-[11.5px] font-bold text-slate-700 flex-shrink-0">${formatCLP(revisadoPrecio(r)) || '—'}</span>
             <button type="button" data-revisados-remove class="text-slate-300 hover:text-red-500 flex-shrink-0">
               <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
             </button>
@@ -155,9 +183,11 @@ function renderRevisadosPanel() {
 function handleRevisadosClick(e) {
   const revisadosRemove = e.target.closest('[data-revisados-remove]');
   if (revisadosRemove) {
-    const [source, ...rest] = (revisadosRemove.closest('[data-revisado-key]')?.dataset.revisadoKey || '').split(':');
+    const row = revisadosRemove.closest('[data-revisado-key]');
+    const [source, ...rest] = (row?.dataset.revisadoKey || '').split(':');
     const key = rest.join(':');
-    const idx = revisados.findIndex(r => r.source === source && r.key === key);
+    const itemId = row?.dataset.revisadoItem || null;
+    const idx = revisados.findIndex(r => (r.itemId || null) === itemId && r.source === source && r.key === key);
     if (idx >= 0) {
       revisados.splice(idx, 1);
       renderRevisadosPanel();
@@ -326,7 +356,7 @@ function offerDetailModalHtml(o) {
 function cmDetailModalHtml(p) {
   const priceLabel = p.precio_min_clp != null
     ? (p.precio_max_clp != null && p.precio_max_clp !== p.precio_min_clp
-        ? `${formatCLP(p.precio_min_clp)} – ${formatCLP(p.precio_max_clp)}` : formatCLP(p.precio_min_clp))
+        ? `${formatCLP(conIva(p.precio_min_clp))} – ${formatCLP(conIva(p.precio_max_clp))}` : formatCLP(conIva(p.precio_min_clp)))
     : 'Precio no informado';
   return `
     <p class="text-[10px] font-semibold text-brand-600 uppercase tracking-wide mb-1">Resumen ejecutivo · Convenio Marco</p>
@@ -375,7 +405,7 @@ function comparisonModalHtml() {
         <tbody>
           <tr class="border-t border-slate-100">
             <td class="text-slate-400 py-1.5 pr-3 sticky left-0 bg-white">Precio</td>
-            ${filtered.map(r => `<td class="py-1.5 px-3 font-bold text-emerald-700">${formatCLP(r.price) || '—'}</td>`).join('')}
+            ${filtered.map(r => `<td class="py-1.5 px-3 font-bold text-emerald-700">${formatCLP(revisadoPrecio(r)) || '—'}</td>`).join('')}
           </tr>
           ${fieldRows.map(([key, label]) => `
           <tr class="border-t border-slate-100">
@@ -419,7 +449,7 @@ function historialListHtml(sessions) {
     <div class="flex items-center gap-2 border border-slate-200 rounded-lg px-3 py-2.5 mb-2 hover:border-brand-300 hover:bg-brand-50/30 transition-colors" data-historial-item="${escapeHtml(s.session_id)}">
       <button type="button" data-historial-resume="${escapeHtml(s.session_id)}" class="min-w-0 flex-1 text-left">
         <p class="text-[13px] font-medium text-slate-700 truncate">${escapeHtml(s.title)}</p>
-        <p class="text-[11px] text-slate-400">${escapeHtml(formatFechaCorta(s.updated_at))}</p>
+        <p class="text-[11px] text-slate-400">${escapeHtml(formatFechaCorta(s.updated_at))}${s.n_compras ? ` · ${s.n_compras} compra${s.n_compras === 1 ? '' : 's'}` : ''}</p>
       </button>
       <button type="button" data-historial-rename="${escapeHtml(s.session_id)}" aria-label="Renombrar" class="w-7 h-7 flex-shrink-0 flex items-center justify-center rounded-lg text-slate-300 hover:text-brand-600 hover:bg-brand-50">
         <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828z"/></svg>
@@ -451,18 +481,25 @@ function openHistorial() {
     });
 }
 
-function resumeSession(sessionId) {
-  schemaReady.then(() => apiFetch(`/api/categories/${CONFIG.slug}/sessions/${sessionId}/resume`, { method: 'POST', headers: _headers() }))
+// opts.onFail: lo usa el auto-retomado al cargar la página (ver
+// DOMContentLoaded) -- si el session_id guardado en este navegador ya no
+// existe (se borró, cambió de dueño, etc.), hay que caer a un formulario
+// nuevo en blanco en vez de dejar la pantalla de "Retomando..." colgada.
+function resumeSession(sessionId, opts = {}) {
+  return schemaReady.then(() => apiFetch(`/api/categories/${CONFIG.slug}/sessions/${sessionId}/resume`, { method: 'POST', headers: _headers() }))
     .then(r => r && r.ok ? r.json() : null)
     .then(data => {
-      if (!data) return;
+      if (!data) { opts.onFail?.(); return; }
       SESSION_ID = sessionId;
+      rememberCurrentSession(sessionId);
       resetWizardState();
+      revisados = [];
       Object.entries(data.ficha || {}).forEach(([attr, value]) => {
         if (value == null) return;
         ficha[attr] = { attribute: attr, value, source: 'user', normalized: true, score: 1 };
       });
       currentTextoOriginal = data.texto_original || '';
+      cart = data.cart || [];
       showingTextScreen = false;
       // Saltar al primer paso core que falte -- si ya están todos, al
       // resumen directo. No se guarda "en qué paso se quedó" explícitamente
@@ -474,19 +511,25 @@ function resumeSession(sessionId) {
       });
       currentStepIndex = firstUnfilled === -1 ? TOTAL_STEPS : firstUnfilled;
       closeModal();
+      renderCartBar();
       renderScreen();
       renderHistorySidebar();
     })
-    .catch(() => {});
+    .catch(() => opts.onFail?.());
 }
 
 // "+ Nuevo formulario" (barra lateral, desktop) -- mismo criterio que
 // "New chat" en ChatGPT: no borra ni resetea el formulario anterior (ya
 // quedó guardado solo, ver save_ficha en main.py), simplemente arranca uno
-// en blanco con un SESSION_ID nuevo.
+// en blanco con un SESSION_ID nuevo. Carrito también arranca vacío --es un
+// formulario distinto, con sus propias compras (ver nota del carrito).
 function nuevoFormulario() {
   SESSION_ID = (crypto.randomUUID ? crypto.randomUUID() : `cat-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+  rememberCurrentSession(SESSION_ID);
+  cart = [];
   resetWizardState();
+  revisados = [];
+  renderCartBar();
   renderScreen();
   renderHistorySidebar();
 }
@@ -505,7 +548,7 @@ function historialSidebarItemsHtml(sessions) {
     <div class="group flex items-center gap-1 rounded-lg px-2 py-2 transition-colors ${active ? 'bg-brand-50' : 'hover:bg-slate-100'}" data-historial-item="${escapeHtml(s.session_id)}">
       <button type="button" data-historial-resume="${escapeHtml(s.session_id)}" class="min-w-0 flex-1 text-left">
         <p class="text-[12.5px] font-medium truncate ${active ? 'text-brand-700' : 'text-slate-600'}">${escapeHtml(s.title)}</p>
-        <p class="text-[10.5px] text-slate-400">${escapeHtml(formatFechaCorta(s.updated_at))}</p>
+        <p class="text-[10.5px] text-slate-400">${escapeHtml(formatFechaCorta(s.updated_at))}${s.n_compras ? ` · ${s.n_compras} compra${s.n_compras === 1 ? '' : 's'}` : ''}</p>
       </button>
       <button type="button" data-historial-rename="${escapeHtml(s.session_id)}" aria-label="Renombrar" class="w-6 h-6 flex-shrink-0 flex items-center justify-center rounded-md text-slate-300 opacity-0 group-hover:opacity-100 hover:text-brand-600 hover:bg-brand-100 transition-opacity">
         <svg class="w-3 h-3" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828z"/></svg>
@@ -529,6 +572,19 @@ function renderHistorySidebar() {
     .catch(() => {
       list.innerHTML = `<p class="px-2 py-2 text-[12px] text-red-400">No se pudo cargar el historial.</p>`;
     });
+}
+
+// Estadísticos de precio con IVA cuando existen (price_data trae median/p25/p75
+// NETOS y median_iva/p25_iva/p75_iva con IVA). Los paneles rotulan "IVA
+// incluido" y las transacciones vienen con IVA: mezclar neto con bruto
+// descuadraba todo (la mediana quedaba 19 % bajo las compras que resume).
+// Precio de un producto revisado tal como se muestra (con IVA en ambos orígenes)
+function revisadoPrecio(r) { return r.source === 'cm' ? conIva(r.price) : r.price; }
+
+function priceStat(p, key) {
+  if (!p) return null;
+  const v = p[key + '_iva'];
+  return v != null ? v : (p[key] ?? null);
 }
 
 function formatCLP(n) {
@@ -583,6 +639,12 @@ function analizar() {
   btn.disabled = true;
   icon.classList.add('animate-spin');
   hint.textContent = 'Analizando...';
+  analyzingNow = true;
+  showAnalyzing(btn, [
+    'Leyendo tu requerimiento...',
+    'Identificando tipo de equipo y especificaciones...',
+    'Preparando los pasos de la ficha...',
+  ]);
   clarifyNotice = null;
   offTopicNotice = null;
 
@@ -603,8 +665,10 @@ function analizar() {
       // handleOffTopicProduct, disparado dentro de handleWizardEvent),
       // showingTextScreen ya quedó en true con el aviso puesto -- no pisarlo
       // forzando el avance normal acá.
-      if (offTopicNotice) { renderHistorySidebar(); return; }
+      analyzingNow = false;
+      if (offTopicNotice) { renderScreen(); renderHistorySidebar(); return; }
       showingTextScreen = false;
+      rememberCurrentSession(SESSION_ID); // ya hay algo guardado server-side -- recién ahora tiene sentido retomarla en un refresh
       renderScreen();
       renderHistorySidebar(); // primer guardado de esta sesión -- recién ahora aparece en la lista
     })
@@ -612,6 +676,8 @@ function analizar() {
     .finally(() => {
       btn.disabled = false;
       icon.classList.remove('animate-spin');
+      analyzingNow = false;
+      hideAnalyzing(btn);
     });
 }
 
@@ -622,7 +688,10 @@ function manualUpdate(attr, value) {
     body: JSON.stringify({ attribute: attr, value }),
   })
     .then(res => res ? readSSEStream(res, handleWizardEvent) : null)
-    .then(() => renderHistorySidebar()) // por si este fue el primer dato guardado de la sesión (flujo "completa los datos directamente")
+    .then(() => {
+      rememberCurrentSession(SESSION_ID); // idem analizar() -- por si este fue el primer dato guardado (flujo "completa los datos directamente")
+      renderHistorySidebar();
+    })
     .catch(err => console.error('Error en manual_update:', err));
 }
 
@@ -759,7 +828,7 @@ function updateProgressBar() {
   const segs = [];
   for (let i = 0; i < TOTAL_STEPS; i++) {
     let cls = 'bg-slate-200';
-    if (i < currentStepIndex) cls = 'bg-emerald-500';
+    if (i < currentStepIndex) cls = 'bg-brand-800';
     else if (i === currentStepIndex) cls = 'bg-brand-600';
     segs.push(`<div class="h-1 flex-1 rounded-full ${cls} transition-colors"></div>`);
   }
@@ -767,10 +836,10 @@ function updateProgressBar() {
 }
 
 function renderPriceMini() {
-  if (showingTextScreen || !priceData || priceData.median == null) {
+  if (showingTextScreen || !priceData || priceStat(priceData, 'median') == null) {
     priceMiniEl.classList.add('hidden');
   } else {
-    priceMiniEl.textContent = formatCLP(priceData.median);
+    priceMiniEl.textContent = formatCLP(priceStat(priceData, 'median'));
     priceMiniEl.classList.remove('hidden');
   }
 }
@@ -778,6 +847,7 @@ function renderPriceMini() {
 /* ── Render de la pantalla activa ──────────────────────────────────── */
 
 function renderScreen() {
+  if (analyzingNow) return;
   updateProgressBar();
   renderPriceMini();
   renderDocPreview();
@@ -799,6 +869,7 @@ function renderScreen() {
   screenEl.classList.remove('wiz-screen-enter');
 
   bindScreenEvents();
+  if (showingTextScreen) bindTextoLibre(document.getElementById('wiz-texto-input'), document.getElementById('wiz-texto-count'));
 
   if (!showingTextScreen && currentStepIndex < CORE_STEPS.length) {
     const step = CORE_STEPS[currentStepIndex];
@@ -813,6 +884,23 @@ function renderScreen() {
     loadPrice();
     renderRevisadosPanel();
   }
+}
+
+// Pantalla mínima mientras se retoma el formulario de esta pestaña al
+// cargar la página (ver DOMContentLoaded/CURRENT_SESSION_KEY) -- reporte
+// real de que faltaban indicadores de carga en varios lados; acá en
+// particular, antes el usuario veía la pantalla de texto en blanco por un
+// instante antes de que el formulario retomado la pisara, lo cual se
+// sentía como un parpadeo raro más que como "se está cargando algo".
+function loadingScreenHtml(text) {
+  return `
+    <div class="bg-white border border-slate-200 rounded-2xl p-8 shadow-sm flex items-center justify-center gap-3">
+      <svg class="w-5 h-5 text-brand-500 animate-spin flex-shrink-0" fill="none" viewBox="0 0 24 24">
+        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="3"></circle>
+        <path class="opacity-90" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+      </svg>
+      <span class="text-[13.5px] text-slate-500">${escapeHtml(text)}</span>
+    </div>`;
 }
 
 function textoScreenHtml() {
@@ -836,22 +924,24 @@ function textoScreenHtml() {
       <button type="button" data-nuevo-requerimiento-completo class="flex-shrink-0 text-[11px] font-medium text-emerald-700 hover:text-emerald-900 underline whitespace-nowrap">¿Requerimiento distinto?</button>
     </div>` : '';
   return `
-    <div class="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm text-center">
-      <h1 class="text-lg font-semibold text-slate-800 mb-1.5">${CONFIG.introTitle}</h1>
-      <p class="text-[13px] text-slate-500 mb-5">${CONFIG.introSubtitle}</p>
+    <div class="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
+      <h1 class="text-[22px] font-semibold text-slate-900 tracking-tight mb-1.5">${CONFIG.introTitle}</h1>
+      <p class="text-[14px] text-slate-500 leading-relaxed mb-6">${CONFIG.introSubtitle}</p>
       ${offTopicBanner}
       ${continuingBanner}
       <textarea id="wiz-texto-input" rows="3" placeholder="Escribe acá..."
                 class="w-full resize-none bg-slate-50 border border-slate-200 rounded-lg px-3.5 py-2.5 text-[14px] text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500 focus:bg-white transition-all text-left"></textarea>
-      <p id="wiz-analizar-hint" class="text-[11.5px] text-slate-400 mt-2 text-left min-h-[16px]"></p>
+      <div class="flex items-start justify-between gap-3 mt-2">
+        <p id="wiz-analizar-hint" class="flex-1 min-w-0 text-[11.5px] text-slate-400 text-left min-h-[16px]"></p>
+        <span id="wiz-texto-count" class="flex-shrink-0 text-[11.5px] text-slate-400 tabular-nums" aria-live="polite">0 / 1.000</span>
+      </div>
       <button id="wiz-analizar-btn" type="button"
               class="w-full mt-3 flex items-center justify-center gap-1.5 px-4 py-3 bg-brand-600 hover:bg-brand-700 text-white text-[14px] font-semibold rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
-        <svg id="wiz-analizar-icon" class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z"/>
-        </svg>
+        <span id="wiz-analizar-icon" class="hidden"></span>
         Analizar
       </button>
-      <button type="button" data-skip-to-manual class="w-full mt-2 text-[12px] text-slate-400 hover:text-brand-600 transition-colors">o completa los datos directamente →</button>
+      <div class="flex items-center gap-3 mt-4 mb-1"><div class="flex-1 h-px bg-slate-200"></div><span class="text-[10.5px] uppercase tracking-[0.14em] text-slate-400">o</span><div class="flex-1 h-px bg-slate-200"></div></div>
+      <button type="button" data-skip-to-manual class="w-full mt-2 py-2.5 text-[13px] font-medium text-brand-700 hover:bg-brand-50 border border-transparent hover:border-brand-100 rounded-lg transition-colors">Completar los datos directamente →</button>
       <button type="button" data-abrir-historial class="lg:hidden w-full mt-3 pt-3 border-t border-slate-100 flex items-center justify-center gap-1.5 text-[11.5px] font-medium text-slate-400 hover:text-brand-600 transition-colors">
         <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
         Ver formularios guardados
@@ -868,10 +958,11 @@ function stepScreenHtml(step) {
 
   if (hasAiPending) {
     return `
-      <div class="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm text-center">
-        <p class="text-[11px] font-semibold text-brand-600 uppercase tracking-wide mb-4">${stepLabel(step)}</p>
-        <p class="text-[15px] text-slate-600 mb-1">Vimos que necesitas</p>
-        <p class="text-[20px] font-bold text-slate-900 mb-5">${formatAttrValue(current.value)}</p>
+      <div class="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
+        <span class="inline-flex items-center text-[10.5px] font-semibold text-brand-700 bg-brand-50 border border-brand-100 rounded-full px-2.5 py-1 mb-3">Sugerido por IA</span>
+        <h2 class="text-[22px] font-semibold text-brand-800 tracking-tight mb-4">${stepLabel(step)}</h2>
+        <p class="text-[14px] text-slate-500 mb-1">Vimos que necesitas</p>
+        <p class="text-[26px] font-semibold text-slate-900 tracking-tight mb-6">${escapeHtml(attrValueText(attr, current.value))}</p>
         <div class="flex gap-2">
           <button type="button" data-confirm="${step}" class="flex-1 py-2.5 bg-brand-600 hover:bg-brand-700 text-white text-[13.5px] font-semibold rounded-lg transition-colors">Sí, es correcto</button>
           <button type="button" data-choose="${step}" class="px-4 py-2.5 bg-white border border-slate-200 hover:border-brand-300 text-slate-600 text-[13.5px] font-medium rounded-lg transition-colors">Elegir otro</button>
@@ -890,8 +981,12 @@ function stepScreenHtml(step) {
 
   return `
     <div class="bg-white border border-slate-200 rounded-2xl p-7 shadow-sm">
-      <p class="text-[11px] font-semibold text-brand-600 uppercase tracking-wide mb-1">${stepLabel(step)}</p>
-      <p class="text-[13px] text-slate-400 mb-3">${pickerCaption(step, meta)}</p>
+      <div class="flex items-center gap-2.5">
+        <span class="step-badge">${CORE_STEPS.indexOf(step) + 1}</span>
+        <p class="text-[11px] font-semibold text-brand-600 uppercase tracking-wide">${stepLabel(step)}</p>
+        <span class="ml-auto text-[11px] text-slate-400">Paso ${CORE_STEPS.indexOf(step) + 1} de ${CORE_STEPS.length}</span>
+      </div>
+      <p class="step-title">${pickerCaption(step, meta)}</p>
       ${notice}
       ${controlHtml(step, attr, meta)}
       ${secondaryHtml}
@@ -941,14 +1036,7 @@ function controlHtml(step, attr, meta) {
 }
 
 function chipsLoadingHtml() {
-  return `
-    <div class="w-full flex items-center gap-3 py-2.5">
-      <svg class="w-5 h-5 text-brand-500 animate-spin flex-shrink-0" fill="none" viewBox="0 0 24 24">
-        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="3"></circle>
-        <path class="opacity-90" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
-      </svg>
-      <span class="text-[14.5px] font-semibold text-brand-700">Buscando sugerencias...</span>
-    </div>`;
+  return loadingBlockHtml('Buscando sugerencias...');
 }
 
 function animateIn(el) {
@@ -1083,7 +1171,7 @@ function attrTableRowHtml(attr) {
     <div class="flex items-center gap-3 px-3.5 py-2.5 ${hasValue ? '' : 'bg-amber-50/40'}">
       <p class="text-[11px] text-slate-500 min-w-[128px] flex-shrink-0">${ATTR_LABELS[attr]}</p>
       ${hasValue ? `
-        <p class="text-[12.5px] font-medium text-slate-700 flex-1 truncate">${formatAttrValue(current.value)} ${badgeFor(current.source)}</p>
+        <p class="text-[12.5px] font-medium text-slate-700 flex-1 truncate">${escapeHtml(attrValueText(attr, current.value))} ${badgeFor(current.source)}</p>
         <button type="button" data-edit-optional="${attr}" class="text-[11px] text-brand-600 hover:text-brand-700 flex-shrink-0">cambiar</button>
       ` : `
         <p class="text-[12px] text-slate-300 italic flex-1">sin especificar</p>
@@ -1291,13 +1379,13 @@ function resumenScreenHtml() {
     const attr = stepPrimaryAttr(step);
     const v = ficha[attr]?.value;
     return (v != null && v !== '')
-      ? `<span class="inline-flex items-center gap-1 text-[12px] font-medium bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-full px-2.5 py-1">${formatAttrValue(v)}</span>`
+      ? `<span class="inline-flex items-center gap-1 text-[12px] font-medium bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-full px-2.5 py-1">${escapeHtml(attrValueText(attr, v))}</span>`
       : '';
   }).filter(Boolean).join(' ');
   const optionalChips = OPTIONAL_ATTRS.map(attr => {
     const v = ficha[attr]?.value;
     if (v == null || v === '') return '';
-    return `<span class="inline-flex items-center gap-1 text-[11px] font-medium bg-slate-50 text-slate-600 border border-slate-200 rounded-full px-2.5 py-1">${ATTR_LABELS[attr]}: ${formatAttrValue(v)}</span>`;
+    return `<span class="inline-flex items-center gap-1 text-[11px] font-medium bg-slate-50 text-slate-600 border border-slate-200 rounded-full px-2.5 py-1">${ATTR_LABELS[attr]}: ${escapeHtml(attrValueText(attr, v))}</span>`;
   }).filter(Boolean).join(' ');
 
   return `
@@ -1305,6 +1393,15 @@ function resumenScreenHtml() {
       <p class="text-[11px] font-semibold text-emerald-600 uppercase tracking-wide mb-3">✓ Compra lista para agregar</p>
       <div class="flex flex-wrap gap-1.5 mb-2">${coreChips}</div>
       ${optionalChips ? `<div class="flex flex-wrap gap-1.5 mb-4">${optionalChips}</div>` : ''}
+
+      <div class="flex items-center justify-between gap-4 border border-slate-200 rounded-xl px-4 py-3 mb-4 bg-slate-50/60">
+        <div class="min-w-0">
+          <p class="text-[13px] font-semibold text-slate-800">Cantidad requerida</p>
+          <p class="text-[11.5px] text-slate-500 leading-snug">Unidades de esta compra. Aparece en el documento y en el total estimado.</p>
+        </div>
+        <input type="number" min="1" step="1" inputmode="numeric" value="${draftCantidad}" data-cantidad-input aria-label="Cantidad requerida"
+               class="w-24 flex-shrink-0 text-right font-semibold" />
+      </div>
 
       <div id="wiz-price-panel-full" class="mb-4"></div>
 
@@ -1668,14 +1765,7 @@ function loadPrice() {
   setAgregarEnabled(false);
   const panel = document.getElementById('wiz-price-panel-full');
   if (panel) {
-    panel.innerHTML = `
-      <div class="bg-slate-50 border border-slate-200 rounded-xl p-4 flex items-center gap-3">
-        <svg class="w-4 h-4 text-brand-500 animate-spin flex-shrink-0" fill="none" viewBox="0 0 24 24">
-          <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="3"></circle>
-          <path class="opacity-90" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
-        </svg>
-        <span class="text-[12.5px] text-slate-500">Calculando precio estimado...</span>
-      </div>`;
+    panel.innerHTML = priceSkeletonHtml('Calculando precio estimado...');
   }
   apiFetch(`/api/categories/${CONFIG.slug}/price/${SESSION_ID}`, { headers: _headers() })
     .then(r => r && r.ok ? r.json() : null)
@@ -1751,8 +1841,8 @@ function cmBlockHtml(cm) {
     // cargar) en vez de un dato real pero ausente.
     const priceLabel = p.precio_min_clp != null
       ? (p.precio_max_clp != null && p.precio_max_clp !== p.precio_min_clp
-          ? `${formatCLP(p.precio_min_clp)} – ${formatCLP(p.precio_max_clp)}`
-          : formatCLP(p.precio_min_clp))
+          ? `${formatCLP(conIva(p.precio_min_clp))} – ${formatCLP(conIva(p.precio_max_clp))}`
+          : formatCLP(conIva(p.precio_min_clp)))
       : null;
     const key = String(p.id_producto ?? p.url ?? p.nombre ?? Math.random());
     const revisado = isRevisado('cm', key);
@@ -1788,8 +1878,8 @@ function cmBlockHtml(cm) {
         <p class="text-[10.5px] font-bold text-brand-700 uppercase tracking-wide">Convenio Marco vigente</p>
         <span class="text-[10px] font-semibold text-brand-600 bg-white border border-brand-200 rounded-full px-2 py-0.5">Opción recomendada</span>
       </div>
-      <p class="text-[24px] font-bold text-brand-800 leading-none mt-1.5 mb-0.5">${formatCLP(cm.median)}</p>
-      <p class="text-[11.5px] text-brand-600 mb-3">rango ${formatCLP(cm.min)} – ${formatCLP(cm.max)} · ${escapeHtml(cm.count)} producto${cm.count === 1 ? '' : 's'} disponible${cm.count === 1 ? '' : 's'}</p>
+      <p class="text-[24px] font-bold text-brand-800 leading-none mt-1.5 mb-0.5">${formatCLP(conIva(cm.median))}</p>
+      <p class="text-[11.5px] text-brand-600 mb-3">rango ${formatCLP(conIva(cm.min))} – ${formatCLP(conIva(cm.max))} · ${escapeHtml(cm.count)} producto${cm.count === 1 ? '' : 's'} disponible${cm.count === 1 ? '' : 's'} · con IVA (catálogo neto + 19 %)</p>
       ${productsHtml ? `<div class="space-y-1.5">${productsHtml}</div>` : ''}
       ${cmPagerHtml(allProducts)}
     </div>`;
@@ -1804,7 +1894,7 @@ function cmNotFoundHtml() {
 }
 
 function caBlockHtml(price, isPrimary) {
-  const { p25, median, p75, count } = price;
+  const p25 = priceStat(price, 'p25'), median = priceStat(price, 'median'), p75 = priceStat(price, 'p75'), count = price.count;
   const min = p25, max = p75;
   const range = Math.max(max - min, 1);
   const midPct = Math.min(100, Math.max(0, ((median - min) / range) * 100));
@@ -1821,7 +1911,7 @@ function caBlockHtml(price, isPrimary) {
       <span>${formatCLP(max)}</span>
     </div>
     <button type="button" data-ver-transacciones class="w-full flex items-center justify-center gap-1.5 py-2 bg-white hover:bg-brand-50 border border-slate-200 hover:border-brand-300 text-slate-600 hover:text-brand-700 text-[12px] font-semibold rounded-lg transition-colors">${transaccionesState.expanded ? 'Ocultar transacciones ↑' : 'Ver transacciones anteriores →'}</button>
-    <div data-transacciones-list class="${transaccionesState.expanded ? '' : 'hidden'} mt-2 space-y-1.5 max-h-[220px] overflow-y-auto">${transaccionesContentHtml()}</div>`;
+    <div data-transacciones-list class="${transaccionesState.expanded ? '' : 'hidden'} mt-2 space-y-1.5">${transaccionesContentHtml()}</div>`;
 
   if (isPrimary) {
     return `
@@ -1848,7 +1938,7 @@ const transaccionesState = {
   expanded: false, offers: null, loading: false, loadError: false,
   sortBy: 'fecha_desc',    // 'fecha_desc' | 'fecha_asc' | 'precio_desc' | 'precio_asc'
   groupBy: 'none',         // 'none' | 'proveedor' | 'anio'
-  page: 1, pageSize: 10, total: 0,
+  page: 1, pageSize: 5, total: 0,
 };
 
 // Paginado del catálogo de Convenio Marco (client-side -- category_service.
@@ -2026,7 +2116,7 @@ function offerRowHtml(o) {
           <p class="text-[11.5px] font-medium text-slate-700 truncate">${escapeHtml(o.razon_social || 'Proveedor no informado')}</p>
           <span class="text-[12px] font-bold text-emerald-700 flex-shrink-0">${formatCLP(o.precio_unitario_iva)}</span>
         </div>
-        ${o.descripcion ? `<p class="text-[11px] text-slate-500 leading-snug mt-0.5">${escapeHtml(o.descripcion)}</p>` : ''}
+        <p class="tx-desc text-[11px] text-slate-500 leading-snug mt-0.5">${escapeHtml(o.descripcion || '')}</p>
         <p class="text-[10.5px] text-slate-400 mt-0.5">${escapeHtml(o.codigo_requerimiento || '')}${o.fecha_modificacion ? ' · ' + escapeHtml(o.fecha_modificacion) : ''}</p>
         <div class="flex items-center gap-1.5 mt-1.5">
           <button type="button" data-offer-detail class="relative z-10 text-[10.5px] font-medium px-2 py-1 rounded-md border border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50 transition-colors">Ver detalle →</button>
@@ -2066,35 +2156,37 @@ function renderDocPreview() {
 
   if (!cart.length && !hasDraft) {
     wrap.innerHTML = `
-      <div class="pdf-wrap" style="border-radius:6px; box-shadow:0 1px 3px rgba(0,0,0,.08);">
-        <div class="hdr">
-          ${CONFIG.docLogoHtml}
-          <h1>${escapeHtml(CONFIG.docTitle)}</h1>
-          <p>Asistente IA Compras Públicas</p>
-        </div>
-        <p style="font-size:12px; color:#94a3b8; text-align:center; padding:32px 0;">A medida que vayas agregando compras a este requerimiento, acá vas a ver el documento tomando forma.</p>
+      <div class="pdf-wrap">
+        <div class="doc-logo">${CONFIG.docLogoHtml}</div>
+        <h1>${escapeHtml(CONFIG.docTitle)}</h1>
+        <p class="doc-empty">A medida que vayas agregando compras a este requerimiento, acá vas a ver el documento tomando forma.</p>
       </div>`;
     return;
   }
 
   const fecha = new Date().toLocaleDateString('es-CL', { year: 'numeric', month: 'long', day: 'numeric' });
-  const sections = cart.map((item, i) => reqBlockHtml(item.texto_original, item.atributos, item.price, item.cmPrice, item.descripcion, i + 1)).join('');
+  const referencia = 'REQ-' + (String(SESSION_ID).replace(/-/g, '').slice(0, 6).toUpperCase() || '000000');
+  const nItems = cart.length + (hasDraft ? 1 : 0);
+  const sections = cart.map((item, i) => reqBlockHtml(item, i + 1)).join('');
   const draftHtml = hasDraft ? `
-    <div class="req" style="border:1.5px dashed #93c5fd; background:#eff6ff; border-radius:8px; padding:10px 12px;">
-      <p style="font-size:9px; font-weight:700; color:#1e6cc5; text-transform:uppercase; letter-spacing:.03em; margin:0 0 6px;">En construcción</p>
-      ${reqBlockHtml(currentTextoOriginal, draftAttrs, priceData, cmPriceData, null, cart.length + 1)}
+    <div class="req-draft">
+      <p class="req-draft-tag">En construcción</p>
+      ${reqBlockHtml({ nombre: null, atributos: draftAttrs, descripcion: null, cantidad: draftCantidad }, cart.length + 1)}
     </div>` : '';
 
   wrap.innerHTML = `
-    <div class="pdf-wrap" style="border-radius:6px; box-shadow:0 1px 3px rgba(0,0,0,.08);">
-      <div class="hdr">
-        ${CONFIG.docLogoHtml}
-        <h1>${escapeHtml(CONFIG.docTitle)}</h1>
-        <p>Generado el ${fecha} · Asistente IA Compras Públicas</p>
+    <div class="pdf-wrap">
+      <div class="doc-logo">${CONFIG.docLogoHtml}</div>
+      <h1>${escapeHtml(CONFIG.docTitle)}</h1>
+      <div class="doc-meta">
+        <div><span>Fecha de emisión</span><b>${escapeHtml(fecha)}</b></div>
+        <div><span>Referencia</span><b>${escapeHtml(referencia)}</b></div>
+        <div><span>Categoría</span><b>${escapeHtml(SCHEMA?.label || '')}</b></div>
+        <div><span>Compras</span><b>${nItems}</b></div>
       </div>
       ${sections}
       ${draftHtml}
-      <div class="ftr">Estimaciones de precio basadas en historial de compras Compra Ágil${CONFIG.supportsConvenioMarco ? ' y catálogo de Convenio Marco vigente' : ''}.</div>
+      <div class="ftr">Documento generado por el Asistente IA · Compras Públicas</div>
     </div>`;
 }
 
@@ -2110,6 +2202,8 @@ function resetWizardState() {
   Object.keys(multiDraft).forEach(k => delete multiDraft[k]);
   clarifyNotice = null;
   currentTextoOriginal = '';
+  draftCantidad = 1;
+  revisados = revisados.filter(r => r.itemId != null); // los del borrador descartado se van
   transaccionesState.expanded = false;
   transaccionesState.offers = null;
   transaccionesState.loading = false;
@@ -2126,25 +2220,25 @@ function empezarNuevoRequerimiento() {
   renderScreen();
 }
 
-// A diferencia de empezarNuevoRequerimiento() (que solo descarta el borrador
-// en curso, el carrito queda intacto -- ver botón "Descartar esta compra..."
-// en el resumen), esto es la acción real de ABANDONAR el requerimiento
-// completo: vacía el carrito entero. Reporte real: "si quiero ir a un nuevo
-// requerimiento, debería aparecer una alerta... de que se está abandonando
-// el requerimiento" -- antes "Vaciar cotización" lo hacía sin avisar nada.
+// A diferencia de empezarNuevoRequerimiento() (que solo descarta el
+// borrador en curso dentro del MISMO formulario -- ver botón "Descartar
+// esta compra..." en el resumen), esto es la acción real de pasar a un
+// REQUERIMIENTO distinto: mismo efecto que "+ Nuevo formulario" (nada se
+// borra, el carrito actual queda guardado en su propio formulario y se
+// puede retomar después desde "Formularios guardados"), con un aviso antes
+// para que no sea sorpresa salir de donde estabas. Reporte real: "si
+// quiero ir a un nuevo requerimiento, debería aparecer una alerta... de
+// que se está abandonando el requerimiento".
 function confirmarNuevoRequerimiento() {
   if (cart.length) {
     const n = cart.length;
     const ok = confirm(
-      `Tienes ${n} compra${n === 1 ? '' : 's'} agregada${n === 1 ? '' : 's'} a este requerimiento. ` +
-      `Empezar uno nuevo las va a eliminar de la cotización actual. ¿Seguro que quieres continuar?`
+      `Vas a salir de este requerimiento (tiene ${n} compra${n === 1 ? '' : 's'}) y abrir uno nuevo en blanco. ` +
+      `Este queda guardado y lo puedes retomar luego desde "Formularios guardados". ¿Continuar?`
     );
     if (!ok) return;
-    cart = [];
-    saveCart();
-    renderCartBar();
   }
-  empezarNuevoRequerimiento();
+  nuevoFormulario();
 }
 
 // Corta el flujo apenas tipo_equipo="Otro" (ver case 'ficha_update' en
@@ -2170,7 +2264,10 @@ function describeItem(item) {
     body: JSON.stringify({ items: [{ texto_original: item.texto_original, atributos: item.atributos }] }),
   })
     .then(r => r && r.ok ? r.json() : null)
-    .then(data => (data && data.descripciones && data.descripciones[0]) || null)
+    .then(data => data ? {
+      descripcion: (data.descripciones && data.descripciones[0]) || null,
+      nombre: (data.nombres && data.nombres[0]) || null,
+    } : null)
     .catch(() => null);
 }
 
@@ -2185,15 +2282,19 @@ function agregarRequerimiento() {
     atributos,
     price: priceData,
     cmPrice: cmPriceData,
+    cantidad: draftCantidad > 0 ? draftCantidad : 1,
   };
+  revisados.forEach(r => { if (r.itemId == null) r.itemId = item.id; });
   cart.push(item);
   saveCart();
   renderCartBar();
+  renderHistorySidebar(); // refleja el nuevo conteo de compras de este formulario
   empezarNuevoRequerimiento();
 
-  describeItem(item).then(desc => {
-    if (!desc) return;
-    item.descripcion = desc;
+  describeItem(item).then(res => {
+    if (!res) return;
+    if (res.descripcion) item.descripcion = res.descripcion;
+    if (res.nombre) item.nombre = res.nombre;
     saveCart();
     renderDocPreview();
     renderCartPanel();
@@ -2203,42 +2304,81 @@ function agregarRequerimiento() {
 function cartItemAttrsHtml(atributos) {
   return ATTR_ORDER
     .filter(a => atributos[a] != null && atributos[a] !== '')
-    .map(a => `<span class="text-[11px] text-slate-500">${ATTR_LABELS[a]}: <strong class="text-slate-700">${formatAttrValue(atributos[a])}</strong></span>`)
+    .map(a => `<span class="text-[11px] text-slate-500">${ATTR_LABELS[a]}: <strong class="text-slate-700">${escapeHtml(attrValueText(a, atributos[a]))}</strong></span>`)
     .join(' &nbsp;·&nbsp; ');
 }
 
-function reqAttrsRowsHtml(atributos) {
-  return ATTR_ORDER
-    .filter(a => atributos[a] != null && atributos[a] !== '')
-    .map(a => {
-      const v = atributos[a];
-      return `<tr><td class="lbl">${ATTR_LABELS[a]}</td><td class="val">${Array.isArray(v) ? v.join(' + ') : (typeof v === 'boolean' ? (v ? 'Sí' : 'No') : escapeHtml(v))}</td></tr>`;
-    })
+// Valor de un atributo tal como va en el documento (unidades, "o" entre opciones).
+function attrValueText(attr, v) {
+  const unit = SCHEMA?.attributes?.[attr]?.unit;
+  const one = (x) => {
+    if (typeof x === 'boolean') return x ? 'Sí' : 'No';
+    if (typeof x === 'number') {
+      if (unit === 'GB') return (x >= 1000 && x % 1000 === 0) ? `${x / 1000} TB` : `${x} GB`;
+      if (unit === '"') return `${String(x).replace('.', ',')} pulgadas`;
+      return String(x).replace('.', ',') + (unit ? ` ${unit}` : '');
+    }
+    return String(x);
+  };
+  return Array.isArray(v) ? v.map(one).join(' o ') : one(v);
+}
+
+// Título del ítem: el nombre corto generado por el modelo; mientras no
+// llega (o si falla), tipo de equipo + características principales.
+function itemTitle(item) {
+  if (item.nombre) return item.nombre;
+  const a = item.atributos || {};
+  const parts = [];
+  (CONFIG.titleAttrs || []).forEach(spec => {
+    const key = [].concat(spec).find(k => a[k] != null && a[k] !== '');
+    if (!key) return;
+    parts.push(attrValueText(key, a[key]) + ((CONFIG.titleSuffix || {})[key] || ''));
+  });
+  return parts.join(' · ') || 'Producto requerido';
+}
+
+// Atributos que el comprador dejó abiertos (el proveedor puede ofrecer cualquiera).
+function freeAttrLabels(atributos) {
+  const a = atributos || {};
+  const sinGpu = a.tiene_gpu_dedicada === false;
+  return Object.keys(SCHEMA?.attributes || {})
+    .filter(k => (a[k] == null || a[k] === '' || (Array.isArray(a[k]) && !a[k].length)) && !(k === 'gpu_dedicada_nombre' && sinGpu))
+    .map(k => {
+      const label = String(ATTR_LABELS[k] || k).replace(/[¿?]/g, '').trim();
+      return (label.length > 1 && (label[1] === label[1].toUpperCase() && /[A-Z]/.test(label[1]) || label.startsWith('Wi-')))
+        ? label : label.charAt(0).toLowerCase() + label.slice(1);
+    });
+}
+
+function joinEs(list) {
+  return list.length <= 1 ? list.join('') : list.slice(0, -1).join(', ') + ' y ' + list[list.length - 1];
+}
+
+function reqBlockHtml(item, index) {
+  const a = item.atributos || {};
+  const rows = ATTR_ORDER
+    .filter(k => a[k] != null && a[k] !== '' && !(Array.isArray(a[k]) && !a[k].length))
+    .map(k => `<tr><td class="lbl">${escapeHtml(ATTR_LABELS[k] || k)}</td><td class="val">${escapeHtml(attrValueText(k, a[k]))}</td></tr>`)
     .join('');
-}
-
-function reqPriceRowsHtml(price, cmPrice) {
-  if (!price) return '';
-  let rows = `<tr><td class="lbl">Precio estimado (mediana, histórico Compra Ágil)</td><td class="val">${formatCLP(price.median)}</td></tr>`;
-  if (CONFIG.supportsConvenioMarco && cmPrice) {
-    rows += `<tr><td class="lbl">Convenio Marco vigente</td><td class="val">${formatCLP(cmPrice.median)}</td></tr>`;
-  }
-  return rows;
-}
-
-function reqBlockHtml(texto, atributos, price, cmPrice, descripcion, index) {
+  const free = freeAttrLabels(a);
+  const qty = Number(item.cantidad) > 0 ? Number(item.cantidad) : 1;
   return `
     <div class="req">
-      <p class="req-title">Compra ${index}</p>
-      <p class="req-texto"><span style="font-style:normal; font-weight:700; color:#334155;">Observación del comprador:</span> ${escapeHtml(texto || 'Sin observación')}</p>
-      ${descripcion ? `<p class="req-desc">${escapeHtml(descripcion)}</p>` : ''}
-      <table class="req-table">${reqAttrsRowsHtml(atributos)}${reqPriceRowsHtml(price, cmPrice)}</table>
+      <div class="req-head">
+        <span class="req-num">${String(index).padStart(2, '0')}</span>
+        <span class="req-name">${escapeHtml(itemTitle(item))}</span>
+        <span class="req-qty">Cantidad <b>${qty.toLocaleString('es-CL')}</b></span>
+      </div>
+      ${item.descripcion ? `<div class="req-descbox"><p class="req-lbl req-lbl-blue">Descripción del producto requerido</p><p>${escapeHtml(item.descripcion)}</p></div>` : ''}
+      <p class="req-lbl">Características técnicas requeridas</p>
+      <table class="req-table">${rows}</table>
+      ${free.length && rows ? `<p class="req-free"><b>Sin exigencia:</b> ${escapeHtml(joinEs(free))}.</p>` : ''}
     </div>`;
 }
 
 function cartItemCardHtml(item, index) {
   const price = item.price
-    ? `<p class="text-[13px] font-semibold text-emerald-700 mt-1.5">${formatCLP(item.price.median)} <span class="text-[10.5px] font-normal text-slate-400">mediana estimada</span></p>`
+    ? `<p class="text-[13px] font-semibold text-emerald-700 mt-1.5">${formatCLP(priceStat(item.price, 'median'))} <span class="text-[10.5px] font-normal text-slate-400">mediana estimada</span></p>`
     : `<p class="text-[11px] text-slate-400 mt-1.5">Sin estimación de precio disponible</p>`;
   return `
     <div class="border border-slate-200 rounded-xl px-3.5 py-3">
@@ -2252,6 +2392,10 @@ function cartItemCardHtml(item, index) {
         </button>
       </div>
       <p class="text-[11px] text-slate-500 mt-1 leading-relaxed">${cartItemAttrsHtml(item.atributos)}</p>
+      <div class="flex items-center justify-between gap-3 mt-2.5">
+        <label class="text-[11.5px] font-medium text-slate-600" for="qty-${item.id}">Cantidad</label>
+        <input id="qty-${item.id}" type="number" min="1" step="1" inputmode="numeric" data-cart-qty="${item.id}" value="${Number(item.cantidad) > 0 ? Number(item.cantidad) : 1}" class="w-24 text-right font-semibold" />
+      </div>
       ${price}
     </div>`;
 }
@@ -2265,9 +2409,23 @@ function renderCartPanel() {
   cartItemsEl.querySelectorAll('[data-cart-remove]').forEach(btn => {
     btn.addEventListener('click', () => {
       cart = cart.filter(i => i.id !== btn.dataset.cartRemove);
+      revisados = revisados.filter(r => r.itemId !== btn.dataset.cartRemove);
+      renderRevisadosPanel();
       saveCart();
       renderCartBar();
       renderCartPanel();
+      renderHistorySidebar();
+    });
+  });
+  cartItemsEl.querySelectorAll('[data-cart-qty]').forEach(inp => {
+    inp.addEventListener('change', () => {
+      const n = Math.max(1, parseInt(inp.value, 10) || 1);
+      inp.value = n;
+      const it = cart.find(i => i.id === inp.dataset.cartQty);
+      if (!it) return;
+      it.cantidad = n;
+      saveCart();
+      renderDocPreview();
     });
   });
 }
@@ -2275,126 +2433,72 @@ function renderCartPanel() {
 function openCartPanel() { renderCartPanel(); renderRevisadosPanel(); cartPanel.classList.remove('hidden'); }
 function closeCartPanel() { cartPanel.classList.add('hidden'); }
 
-/* ── Exportar PDF (client-side, html2pdf.js) ─────────────────────────── */
+/* ── Exportar PDF (backend, ReportLab) ──────────────────────────────────
+   El PDF solo lleva lo técnico (qué se compra, cuánto, con qué
+   características) para adjuntarlo al requerimiento en ChileCompra. Los
+   precios y las comparaciones viven en el resumen ejecutivo. */
 
 function downloadRequerimientosPDF() {
   if (!cart.length) return;
   cartPdfBtn.disabled = true;
   cartPdfIcon.classList.add('animate-spin');
 
-  const pendientes = cart.filter(i => !i.descripcion);
-  if (!pendientes.length) {
-    buildAndSavePDF(cart.map(i => i.descripcion || ''));
-    cartPdfBtn.disabled = false;
-    cartPdfIcon.classList.remove('animate-spin');
-    return;
-  }
+  // Nombre y descripción los genera el modelo; normalmente ya vienen del
+  // carrito (se piden al agregar la compra). Solo se piden los que falten.
+  const pendientes = cart.filter(i => !i.descripcion || !i.nombre);
+  const ensure = pendientes.length
+    ? apiFetch(`/api/categories/${CONFIG.slug}/describe`, {
+        method: 'POST',
+        headers: _headers(),
+        body: JSON.stringify({ items: pendientes.map(i => ({ texto_original: i.texto_original, atributos: i.atributos })) }),
+      })
+        .then(r => r && r.ok ? r.json() : { descripciones: [], nombres: [] })
+        .then(data => {
+          pendientes.forEach((i, j) => {
+            if (!i.descripcion && data.descripciones?.[j]) i.descripcion = data.descripciones[j];
+            if (!i.nombre && data.nombres?.[j]) i.nombre = data.nombres[j];
+          });
+          saveCart();
+          renderDocPreview();
+        })
+        .catch(() => {})
+    : Promise.resolve();
 
-  const items = pendientes.map(i => ({ texto_original: i.texto_original, atributos: i.atributos }));
-  apiFetch(`/api/categories/${CONFIG.slug}/describe`, {
-    method: 'POST',
-    headers: _headers(),
-    body: JSON.stringify({ items }),
-  })
-    .then(r => r && r.ok ? r.json() : { descripciones: [] })
-    .then(data => {
-      const nuevas = data.descripciones || [];
-      let j = 0;
-      cart.forEach(i => { if (!i.descripcion) i.descripcion = nuevas[j++] || ''; });
-      saveCart();
-      buildAndSavePDF(cart.map(i => i.descripcion || ''));
+  ensure
+    .then(() => apiFetch(`/api/categories/${CONFIG.slug}/pdf`, {
+      method: 'POST',
+      headers: _headers(),
+      body: JSON.stringify({
+        session_id: SESSION_ID,
+        items: cart.map(i => ({
+          nombre: i.nombre || null,
+          texto_original: i.texto_original,
+          atributos: i.atributos,
+          descripcion: i.descripcion || null,
+          cantidad: Number(i.cantidad) > 0 ? Number(i.cantidad) : 1,
+        })),
+      }),
+    }))
+    .then(r => {
+      if (!r) return null;           // sesión vencida: apiFetch ya mostró el aviso
+      if (!r.ok) throw new Error(`PDF ${r.status}`);
+      return r.blob();
     })
-    .catch(() => buildAndSavePDF(cart.map(i => i.descripcion || '')))
+    .then(blob => {
+      if (!blob) return;
+      downloadBlob(blob, `${CONFIG.pdfFilenamePrefix}-${SESSION_ID.slice(0, 6).toLowerCase()}.pdf`);
+      fetch(`/api/track/${SESSION_ID}`, {
+        method: 'POST', headers: _headers(), body: JSON.stringify({ tipo: `${CONFIG.slug}_pdf_download` }),
+      }).catch(() => {});
+    })
+    .catch(err => {
+      console.error('Error generando el PDF:', err);
+      alert('No pudimos generar el PDF. Intenta de nuevo en unos segundos.');
+    })
     .finally(() => {
       cartPdfBtn.disabled = false;
       cartPdfIcon.classList.remove('animate-spin');
     });
-}
-
-// Página(s) aparte al final del PDF con los "revisados" -- misma tabla que
-// comparisonModalHtml(), pero con las clases .cmp-* (hand-rolled, no
-// Tailwind) que ya usa el resto del documento para mayor fiabilidad al
-// capturarlo con html2canvas (ver .req-table en el <style> del template).
-//
-// El documento completo se captura a un ancho fijo (794px, ver tmpEl más
-// abajo) -- con muchos ítems revisados la tabla se volvía más ancha que
-// eso y quedaba cortada en el PDF (bug real reportado: 13 comparados se
-// cortaban). Acá se parte en bloques de columnas que sí caben, cada uno en
-// su propia página -- escala a cualquier cantidad de revisados.
-const PDF_CMP_CHUNK_SIZE = 6;
-
-function revisadosPdfPageHtml() {
-  if (!revisados.length) return '';
-  const fmtCell = (v) => isUnspecified(v) ? '—' : (typeof v === 'boolean' ? (v ? 'Sí' : 'No') : v);
-  const chunks = [];
-  for (let i = 0; i < revisados.length; i += PDF_CMP_CHUNK_SIZE) chunks.push(revisados.slice(i, i + PDF_CMP_CHUNK_SIZE));
-
-  return chunks.map((chunk, idx) => {
-    const fieldRows = OFFER_DETAIL_FIELDS.filter(([key]) => chunk.some(r => r.raw && !isUnspecified(r.raw[key])));
-    const pageNote = chunks.length > 1 ? ` (${idx + 1}/${chunks.length})` : '';
-    return `
-      <div style="page-break-before:always;">
-        <p class="cmp-title">Productos revisados (comparación)${pageNote}</p>
-        <table class="cmp-table">
-          <thead>
-            <tr>
-              <th>Atributo</th>
-              ${chunk.map(r => `<th><span class="cmp-tag ${r.source}">${r.source === 'cm' ? 'CM' : 'CA'}</span><br>${escapeHtml(r.label)}</th>`).join('')}
-            </tr>
-          </thead>
-          <tbody>
-            <tr><td class="cmp-lbl">Precio</td>${chunk.map(r => `<td>${formatCLP(r.price) || '—'}</td>`).join('')}</tr>
-            ${fieldRows.map(([key, label]) => `
-            <tr><td class="cmp-lbl">${escapeHtml(label)}</td>${chunk.map(r => `<td>${escapeHtml(fmtCell(r.raw ? r.raw[key] : null))}</td>`).join('')}</tr>`).join('')}
-          </tbody>
-        </table>
-      </div>`;
-  }).join('');
-}
-
-function buildAndSavePDF(descripciones) {
-  const fecha = new Date().toLocaleDateString('es-CL', { year: 'numeric', month: 'long', day: 'numeric' });
-  const itemsHtml = cart.map((item, i) => `
-    <div style="${i > 0 ? 'page-break-before:always;' : ''}">
-      ${reqBlockHtml(item.texto_original, item.atributos, item.price, item.cmPrice, descripciones[i], i + 1)}
-    </div>`).join('');
-
-  const css = `* { box-sizing: border-box; }`;
-  const contentHtml = `
-    <div class="pdf-wrap">
-      <div class="hdr">
-        ${CONFIG.docLogoHtml}
-        <h1>${escapeHtml(CONFIG.docTitle)}</h1>
-        <p>Generado el ${fecha} · Asistente IA Compras Públicas</p>
-      </div>
-      ${itemsHtml}
-      <div class="ftr">Estimaciones de precio basadas en historial de compras Compra Ágil${CONFIG.supportsConvenioMarco ? ' y catálogo de Convenio Marco vigente' : ''}. Documento generado automáticamente.</div>
-      ${revisadosPdfPageHtml()}
-    </div>`;
-
-  const tmpEl = document.createElement('div');
-  tmpEl.style.cssText = 'position:fixed;top:0;left:-9999px;width:794px;background:white;z-index:-1;';
-  const styleEl = document.createElement('style');
-  styleEl.textContent = css;
-  const wrapEl = document.createElement('div');
-  wrapEl.innerHTML = contentHtml;
-  tmpEl.appendChild(styleEl);
-  tmpEl.appendChild(wrapEl);
-  document.body.appendChild(tmpEl);
-
-  fetch(`/api/track/${SESSION_ID}`, {
-    method: 'POST', headers: _headers(), body: JSON.stringify({ tipo: `${CONFIG.slug}_pdf_download` }),
-  }).catch(() => {});
-
-  html2pdf().set({
-    margin: [8, 8, 8, 8],
-    filename: `${CONFIG.pdfFilenamePrefix}-${SESSION_ID.slice(0, 6).toLowerCase()}.pdf`,
-    image: { type: 'jpeg', quality: 0.97 },
-    html2canvas: { scale: 2, useCORS: true, logging: false },
-    jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
-  }).from(wrapEl).save().finally(() => {
-    document.body.removeChild(tmpEl);
-  });
 }
 
 /* ── Arranque: carga el schema y recién ahí resuelve CORE_STEPS/etc ──── */
@@ -2606,11 +2710,24 @@ function bindGlobalPriceDelegation() {
   });
 }
 
+// La cantidad del borrador se actualiza mientras se escribe (no se repinta la
+// pantalla: se perdería el foco del campo).
+function bindCantidadInput() {
+  screenEl.addEventListener('input', (e) => {
+    if (!e.target.matches('[data-cantidad-input]')) return;
+    const n = parseInt(e.target.value, 10);
+    draftCantidad = n > 0 ? n : 1;
+    renderDocPreview();
+  });
+  screenEl.addEventListener('change', (e) => {
+    if (!e.target.matches('[data-cantidad-input]')) return;
+    e.target.value = draftCantidad;
+  });
+}
+
 document.addEventListener('DOMContentLoaded', () => {
-  loadCart();
+  bindCantidadInput();
   // revisados NO se carga de ningún lado -- arranca vacío siempre (ver nota junto a "let revisados = []").
-  renderCartBar();
-  renderScreen(); // pantalla de texto inicial -- no depende del schema, se pinta de inmediato
   bindGlobalPriceDelegation();
   backBtn.addEventListener('click', goBack);
   const historialTopBtn = document.querySelector('#wiz-progress-wrap [data-abrir-historial]');
@@ -2632,6 +2749,29 @@ document.addEventListener('DOMContentLoaded', () => {
     saveCart();
     renderCartBar();
     renderCartPanel();
+    renderHistorySidebar();
   });
   cartPdfBtn.addEventListener('click', downloadRequerimientosPDF);
+
+  // Retomar automáticamente el formulario en el que se estaba trabajando en
+  // esta pestaña (ver CURRENT_SESSION_KEY), en vez de arrancar siempre un
+  // SESSION_ID nuevo en cada carga de página -- eso era justo lo que
+  // generaba el reporte "cuando actualizo me sale como de la última
+  // compra" (el carrito global viejo colándose en una sesión nueva que no
+  // tenía nada que ver). Si no hay nada guardado (primera visita, u otra
+  // pestaña/dispositivo), arranca en blanco como siempre.
+  const rememberedId = getRememberedSession();
+  if (rememberedId) {
+    screenEl.innerHTML = loadingScreenHtml('Retomando tu formulario...');
+    resumeSession(rememberedId, {
+      onFail: () => {
+        try { sessionStorage.removeItem(CURRENT_SESSION_KEY); } catch (e) {}
+        renderCartBar();
+        renderScreen();
+      },
+    });
+  } else {
+    renderCartBar();
+    renderScreen(); // pantalla de texto inicial -- no depende del schema, se pinta de inmediato
+  }
 });

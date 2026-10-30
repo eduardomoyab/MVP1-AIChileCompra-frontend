@@ -151,3 +151,126 @@ document.addEventListener('DOMContentLoaded', () => {
   // reintenta una acción.
   setInterval(fetchUsage, 5 * 60 * 1000);
 });
+
+// ── Estados de carga (compartidos por todas las categorías) ───────
+// Bloque "cargando sugerencias": mensaje + pastillas esqueleto con shimmer.
+// Reemplaza al spinner suelto -- se ve como lo que va a aparecer, no como
+// un círculo girando sobre un hueco.
+function loadingBlockHtml(message, { pills = [92, 120, 78, 104, 86] } = {}) {
+  return `
+    <div class="w-full load-block" role="status" aria-live="polite">
+      <div class="load-label"><span class="load-dot"></span><span>${escapeHtml(message)}</span></div>
+      <div class="load-skel">${pills.map(w => `<i style="width:${w}px"></i>`).join('')}</div>
+    </div>`;
+}
+
+// Esqueleto del bloque de precio (número grande + barra de rango).
+function priceSkeletonHtml(message) {
+  return `
+    <div class="load-price" role="status" aria-live="polite">
+      <div class="load-label"><span class="load-dot"></span><span>${escapeHtml(message)}</span></div>
+      <div class="load-skel-block">
+        <i class="sk-num"></i>
+        <i class="sk-line" style="width:62%"></i>
+        <i class="sk-bar"></i>
+        <div class="sk-ends"><i></i><i></i></div>
+      </div>
+    </div>`;
+}
+
+// Capa sobre la tarjeta mientras la IA analiza el texto. Rota los mensajes
+// con fade para dar sensación de avance sin prometer pasos que no existen.
+let _analyzingTimer = null;
+function showAnalyzing(anchorEl, messages) {
+  const card = anchorEl && anchorEl.closest('.rounded-2xl');
+  if (!card || card.querySelector('.analyzing-overlay')) return;
+  const ov = document.createElement('div');
+  ov.className = 'analyzing-overlay';
+  ov.setAttribute('role', 'status');
+  ov.setAttribute('aria-live', 'polite');
+  ov.innerHTML = `
+    <div class="analyzing-orb"><span></span><span></span><span></span></div>
+    <p class="analyzing-title">Analizando tu requerimiento</p>
+    <p class="analyzing-msg"></p>
+    <div class="analyzing-bar"><i></i></div>`;
+  card.appendChild(ov);
+  const msgEl = ov.querySelector('.analyzing-msg');
+  let i = 0;
+  const tick = () => {
+    msgEl.classList.remove('in'); void msgEl.offsetWidth;
+    msgEl.textContent = messages[i % messages.length];
+    msgEl.classList.add('in');
+    i++;
+  };
+  tick();
+  clearInterval(_analyzingTimer);
+  _analyzingTimer = setInterval(tick, 2200);
+}
+
+function hideAnalyzing(anchorEl) {
+  clearInterval(_analyzingTimer);
+  const card = anchorEl && anchorEl.closest && anchorEl.closest('.rounded-2xl');
+  const ov = card && card.querySelector('.analyzing-overlay');
+  if (ov) ov.remove();
+}
+
+// ── Texto libre del requerimiento ─────────────────────────────────
+// El campo crece con lo que se escribe (sin scroll interno, hasta un tope de
+// alto), limita el largo y muestra cuántos caracteres lleva. El mismo tope lo
+// exige el backend (MAX_TEXTO en main.py).
+const TEXTO_MAX = 1000;
+const TEXTO_ALTO_MAX = 420;
+
+function bindTextoLibre(textarea, counterEl, max = TEXTO_MAX) {
+  if (!textarea || textarea.dataset.textoLibre) return;
+  textarea.dataset.textoLibre = '1';
+  textarea.setAttribute('maxlength', String(max));
+  textarea.style.overflowY = 'hidden';
+  let noteTimer = null;
+
+  const fit = () => {
+    textarea.style.height = 'auto';
+    const h = Math.min(textarea.scrollHeight + 2, TEXTO_ALTO_MAX);
+    textarea.style.height = h + 'px';
+    textarea.style.overflowY = textarea.scrollHeight + 2 > TEXTO_ALTO_MAX ? 'auto' : 'hidden';
+  };
+  const count = () => {
+    if (!counterEl) return;
+    const n = textarea.value.length;
+    counterEl.textContent = `${n.toLocaleString('es-CL')} / ${max.toLocaleString('es-CL')}`;
+    counterEl.classList.toggle('text-amber-600', n >= max * 0.9);
+    counterEl.classList.toggle('font-semibold', n >= max * 0.9);
+    counterEl.classList.toggle('text-slate-400', n < max * 0.9);
+  };
+  textarea.addEventListener('input', () => { fit(); count(); });
+  // Un texto pegado más largo que lo que cabe se recorta solo (maxlength): se avisa.
+  textarea.addEventListener('paste', (e) => {
+    const pasted = ((e.clipboardData || window.clipboardData)?.getData('text')) || '';
+    const room = max - (textarea.value.length - (textarea.selectionEnd - textarea.selectionStart));
+    if (pasted.length <= room || !counterEl) return;
+    counterEl.textContent = `Se recortó a ${max.toLocaleString('es-CL')} caracteres`;
+    counterEl.classList.add('text-amber-600', 'font-semibold');
+    clearTimeout(noteTimer);
+    noteTimer = setTimeout(count, 3500);
+  });
+  fit();
+  count();
+}
+
+// ── Precios: base común (IVA) y descarga de archivos ───────────────────
+// El catálogo de Convenio Marco se publica NETO ("Precio Neto no incluye IVA",
+// verificado en la ficha del producto). Para mostrarlo sobre la misma base
+// que Compra Ágil se le suma el IVA; el dato guardado sigue siendo el neto.
+const IVA_RATE = 1.19;
+function conIva(n) { return Number.isFinite(n) ? Math.round(n * IVA_RATE) : n; }
+function downloadBlob(blob, filename) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 2000);
+}
+

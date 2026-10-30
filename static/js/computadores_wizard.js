@@ -36,7 +36,13 @@ const CONFIG = {
     },
   },
 
-  docTitle: 'Requerimientos de Compra — Computadores',
+  // Documento técnico (vista previa y PDF del backend): sin precios.
+  docTitle: 'Especificaciones técnicas',
   docLogoHtml: '<img src="/imagenes/logo-chilecompra.png" alt="ChileCompra" />',
-  pdfFilenamePrefix: 'requerimientos-computadores',
+  pdfFilenamePrefix: 'especificaciones-tecnicas-computadores',
+
+  // Título de respaldo de cada ítem mientras no llega el nombre del modelo:
+  // tipo + procesador (modelo exacto, si no la línea) + RAM + almacenamiento.
+  titleAttrs: ['tipo_equipo', ['procesador_principal', 'linea_procesador'], 'total_ram_gb', 'total_almacenamiento_gb'],
+  titleSuffix: { total_ram_gb: ' RAM' },
 };

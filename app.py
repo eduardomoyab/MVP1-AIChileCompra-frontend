@@ -20,7 +20,7 @@ app = Flask(__name__)
 # calza con lo registrado en Google Cloud Console y el login falla.
 app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=0, x_port=0, x_prefix=0)
 
-API_URL          = os.getenv("API_URL", "http://localhost:8000")
+API_URL          = os.getenv("API_URL", "http://127.0.0.1:8000")
 FRONTEND_API_KEY = os.getenv("FRONTEND_API_KEY", "")
 HOST             = os.getenv("FLASK_HOST", "0.0.0.0")
 PORT             = int(os.getenv("FLASK_PORT", "5000"))
@@ -256,6 +256,48 @@ def proxy(path):
 def serve_imagenes(filename):
     imagenes_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "imagenes")
     return send_from_directory(imagenes_dir, filename)
+
+
+# ─── Cabeceras de seguridad ────────────────────────────────────────────────
+# Dominios externos que la app usa de verdad (ver plantillas): Tailwind (CDN),
+# Google Fonts, cdnjs (html2pdf del chat legacy) y Turnstile de Cloudflare.
+# 'unsafe-inline'/'unsafe-eval' siguen haciendo falta mientras Tailwind se
+# configure con un <script> inline y se cargue por CDN; igual la política
+# bloquea lo más riesgoso: plugins (object-src), <base> inyectado, que otro
+# sitio embeba la app (frame-ancestors) y conexiones a otros orígenes.
+# CSP_MODE: "enforce" (por defecto) | "report-only" (solo avisa en la consola,
+# por si algo se rompiera en producción) | "off".
+_CSP = "; ".join([
+    "default-src 'self'",
+    "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.tailwindcss.com https://cdnjs.cloudflare.com https://challenges.cloudflare.com",
+    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+    "font-src 'self' data: https://fonts.gstatic.com",
+    "img-src 'self' data: blob:",
+    "connect-src 'self'",
+    "frame-src https://challenges.cloudflare.com",
+    "object-src 'none'",
+    "base-uri 'self'",
+    "frame-ancestors 'none'",
+])
+CSP_MODE = os.getenv("CSP_MODE", "enforce").lower()
+
+
+@app.after_request
+def _security_headers(resp):
+    resp.headers.setdefault("X-Content-Type-Options", "nosniff")
+    resp.headers.setdefault("X-Frame-Options", "DENY")
+    resp.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+    resp.headers.setdefault("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=(), usb=()")
+    if request.is_secure or request.headers.get("X-Forwarded-Proto", "").lower() == "https":
+        resp.headers.setdefault("Strict-Transport-Security", "max-age=31536000")
+    if CSP_MODE == "enforce":
+        resp.headers.setdefault("Content-Security-Policy", _CSP)
+    elif CSP_MODE == "report-only":
+        resp.headers.setdefault("Content-Security-Policy-Report-Only", _CSP)
+    # Las páginas HTML llevan datos de la persona logueada: que no se queden en cachés compartidas.
+    if resp.mimetype == "text/html":
+        resp.headers.setdefault("Cache-Control", "no-store")
+    return resp
 
 
 if __name__ == "__main__":

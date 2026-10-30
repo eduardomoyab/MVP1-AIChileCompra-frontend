@@ -6,123 +6,155 @@
   <title>Ingresar · Asistente IA Compra Ágil</title>
   <link rel="icon" href="/static/favicon.ico" type="image/x-icon">
 
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,300;0,400;0,500;0,600;0,700;1,400&display=swap" rel="stylesheet">
-
   {% if turnstile_enabled %}
   <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
   {% endif %}
-  <script src="https://cdn.tailwindcss.com"></script>
-  <script>
-    tailwind.config = {
-      theme: {
-        extend: {
-          colors: {
-            brand: {
-              50:  '#e8f0fb', 100: '#c5d8f5', 200: '#9bbdee',
-              500: '#1e6cc5', 600: '#154f96', 700: '#0f3d78',
-              800: '#0a2d5e', 900: '#061e42',
-            }
-          }
-        }
-      }
-    }
-  </script>
-  <style> body { font-family: 'Inter', sans-serif; } </style>
+  {% include "_tailwind.html" %}
+  <link rel="stylesheet" href="/static/css/style.css" />
 </head>
-<body class="min-h-screen bg-slate-100 text-slate-800">
+<body class="min-h-screen bg-white text-slate-800">
 
-  <header class="h-[54px] lg:h-[68px] bg-white border-b border-slate-200 flex items-center justify-center px-3 lg:px-8 shadow-sm">
-    <div class="flex items-center gap-2 lg:gap-5">
-      <img src="/imagenes/logo-chilecompra.png" class="h-7 lg:h-10 w-auto max-w-[68px] lg:max-w-none object-contain" alt="ChileCompra" />
-      <div class="hidden sm:block w-px h-6 bg-slate-200 flex-shrink-0"></div>
-      <img src="/imagenes/logo-OCP.png" class="h-5 lg:h-8 w-auto max-w-[48px] lg:max-w-none object-contain" alt="OCP" />
-      <div class="hidden sm:block w-px h-6 bg-slate-200 flex-shrink-0"></div>
-      <img src="/imagenes/logo-UCBerkeley.png" class="h-5 lg:h-8 w-auto max-w-[48px] lg:max-w-none object-contain" alt="UC Berkeley" />
-      <div class="hidden sm:block w-px h-6 bg-slate-200 flex-shrink-0"></div>
-      <img src="/imagenes/logo-uch2.png" class="h-6 lg:h-10 w-auto max-w-[68px] lg:max-w-none object-contain" alt="Universidad de Chile" />
-    </div>
-  </header>
+  <div class="min-h-screen grid lg:grid-cols-[minmax(0,1.05fr)_minmax(0,1fr)]">
 
-  <div class="min-h-[calc(100vh-68px)] flex items-center justify-center px-4">
-    <div class="w-full max-w-md bg-white border border-slate-200 rounded-xl shadow-sm p-10">
-      <div class="flex items-center justify-center gap-1.5 mb-1.5">
-        <svg class="w-4 h-4 text-brand-600 flex-shrink-0" viewBox="0 0 24 24" fill="currentColor">
-          <path d="M12 2.5l1.8 5.6 5.7 1.4-5.7 1.4-1.8 5.6-1.8-5.6-5.7-1.4 5.7-1.4z"/>
-        </svg>
-        <h1 class="text-xl font-semibold text-brand-800 text-center">Asistente IA · Compra Ágil</h1>
+    <!-- ══ Panel institucional ═══════════════════════════════════════ -->
+    <aside class="hidden lg:flex relative flex-col justify-between overflow-hidden bg-brand-900 text-white px-14 py-14">
+      <div class="absolute inset-0 bg-[radial-gradient(900px_500px_at_100%_0%,rgba(30,108,197,.35),transparent_60%),radial-gradient(700px_500px_at_0%_100%,rgba(74,134,212,.18),transparent_60%)]"></div>
+      <div class="absolute inset-0 opacity-[0.06] [background-image:linear-gradient(to_right,#fff_1px,transparent_1px),linear-gradient(to_bottom,#fff_1px,transparent_1px)] [background-size:44px_44px]"></div>
+
+      <div class="relative">
+        <span class="inline-flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-brand-200">
+          <span class="w-6 h-px bg-brand-300"></span>
+          ChileCompra · Piloto
+        </span>
       </div>
-      <p class="text-sm text-slate-500 mb-7 text-center">Ingresa con tu cuenta de Google para continuar.</p>
 
-      {% with messages = get_flashed_messages(with_categories=true) %}
-        {% if messages %}
-          <div class="mb-5 space-y-2">
-            {% for category, message in messages %}
-            <div class="rounded-lg px-4 py-3 text-sm border bg-red-50 text-red-700 border-red-200">{{ message }}</div>
-            {% endfor %}
+      <div class="relative max-w-lg">
+        <h1 class="text-[40px] leading-[1.1] font-semibold tracking-[-0.025em]">
+          Especificaciones técnicas<br>
+          <span class="text-brand-200">más rápidas y precisas.</span>
+        </h1>
+        <p class="mt-6 text-[15px] leading-relaxed text-brand-100/80">
+          Asistente de inteligencia artificial para preparar compras en Compra Ágil: fichas técnicas
+          consistentes y precios de referencia basados en datos reales de Mercado Público.
+        </p>
+
+        <dl class="mt-10 grid grid-cols-2 gap-6 max-w-md">
+          <div class="border-t border-white/15 pt-4">
+            <dt class="text-[11px] uppercase tracking-[0.14em] text-brand-200/80">Fichas</dt>
+            <dd class="mt-1 text-[14px] font-medium">Atributos estandarizados</dd>
           </div>
-        {% endif %}
-      {% endwith %}
-
-      {% if motivo == 'mp_invalido' %}
-      <div class="rounded-lg px-4 py-3 text-sm bg-amber-50 text-amber-700 border border-amber-200 text-center mb-5">
-        <p class="mb-3">No pudimos verificar tu acceso desde Mercado Público.</p>
-        <button type="button" onclick="history.back()"
-                class="w-full bg-white border border-amber-300 hover:bg-amber-100 text-amber-800 text-sm font-medium rounded-lg py-2">
-          Volver atrás
-        </button>
+          <div class="border-t border-white/15 pt-4">
+            <dt class="text-[11px] uppercase tracking-[0.14em] text-brand-200/80">Precios</dt>
+            <dd class="mt-1 text-[14px] font-medium">Referencia de mercado</dd>
+          </div>
+        </dl>
       </div>
-      {% else %}
-      <div class="space-y-3">
-      {% if turnstile_enabled and (google_login_enabled or microsoft_login_enabled) %}
-      <div class="cf-turnstile flex justify-center mb-1" data-sitekey="{{ turnstile_site_key }}" data-callback="onTurnstileSuccess" data-theme="light"></div>
-      {% endif %}
 
-      {% if google_login_enabled %}
-      <form method="POST" action="{{ url_for('auth.login_google') }}">
-        <input type="hidden" name="cf-turnstile-response" id="cf-token-google">
-        <button type="submit"
-           class="w-full flex items-center justify-center gap-2.5 bg-white border border-slate-300 hover:bg-slate-50 hover:border-slate-400 text-slate-700 text-sm font-medium rounded-lg py-2.5 shadow-sm">
-          <svg class="w-4 h-4" viewBox="0 0 24 24">
-            <path fill="#4285F4" d="M23.52 12.27c0-.85-.08-1.67-.22-2.45H12v4.64h6.47a5.54 5.54 0 01-2.4 3.64v3h3.88c2.27-2.09 3.57-5.17 3.57-8.83z"/>
-            <path fill="#34A853" d="M12 24c3.24 0 5.95-1.08 7.93-2.9l-3.88-3c-1.08.72-2.45 1.15-4.05 1.15-3.11 0-5.75-2.1-6.69-4.93H1.3v3.1A12 12 0 0012 24z"/>
-            <path fill="#FBBC05" d="M5.31 14.32a7.2 7.2 0 010-4.64v-3.1H1.3a12 12 0 000 10.84l4.01-3.1z"/>
-            <path fill="#EA4335" d="M12 4.75c1.76 0 3.34.6 4.58 1.79l3.44-3.44C17.94 1.19 15.24 0 12 0A12 12 0 001.3 6.58l4.01 3.1C6.25 6.85 8.89 4.75 12 4.75z"/>
-          </svg>
-          Iniciar sesión con Google
-        </button>
-      </form>
-      {% endif %}
-
-      {% if microsoft_login_enabled %}
-      <form method="POST" action="{{ url_for('auth.login_microsoft') }}">
-        <input type="hidden" name="cf-turnstile-response" id="cf-token-microsoft">
-        <button type="submit"
-           class="w-full flex items-center justify-center gap-2.5 bg-white border border-slate-300 hover:bg-slate-50 hover:border-slate-400 text-slate-700 text-sm font-medium rounded-lg py-2.5 shadow-sm">
-          <svg class="w-4 h-4" viewBox="0 0 21 21">
-            <rect x="1" y="1" width="9" height="9" fill="#f25022"/>
-            <rect x="11" y="1" width="9" height="9" fill="#7fba00"/>
-            <rect x="1" y="11" width="9" height="9" fill="#00a4ef"/>
-            <rect x="11" y="11" width="9" height="9" fill="#ffb900"/>
-          </svg>
-          Iniciar sesión con Microsoft
-        </button>
-      </form>
-      {% endif %}
-
-      {% if not google_login_enabled and not microsoft_login_enabled %}
-      <div class="rounded-lg px-4 py-3 text-sm bg-amber-50 text-amber-700 border border-amber-200 text-center">
-        El login no está configurado en este entorno.
+      <div class="relative flex items-center gap-4 rounded-xl bg-white px-5 py-3 w-fit shadow-lift">
+        <img src="/imagenes/logo-chilecompra.png" class="h-8 w-auto object-contain" alt="ChileCompra" />
+        <div class="w-px h-6 bg-slate-200"></div>
+        <img src="/imagenes/logo-OCP.png" class="h-6 w-auto object-contain" alt="OCP" />
+        <div class="w-px h-6 bg-slate-200"></div>
+        <img src="/imagenes/logo-UCBerkeley.png" class="h-6 w-auto object-contain" alt="UC Berkeley" />
+        <div class="w-px h-6 bg-slate-200"></div>
+        <img src="/imagenes/logo-uch2.png" class="h-8 w-auto object-contain" alt="Universidad de Chile" />
       </div>
-      {% endif %}
-      </div>
-      {% endif %}
+    </aside>
 
-      <p class="text-xs text-slate-400 mt-6 text-center">
-        Solo cuentas autorizadas pueden acceder. Si necesitas acceso, contacta al administrador.
-      </p>
-    </div>
+    <!-- ══ Formulario ════════════════════════════════════════════════ -->
+    <main class="relative flex flex-col bg-executive">
+      <!-- Logos en móvil (el panel institucional se oculta) -->
+      <div class="lg:hidden flex items-center justify-center gap-3 bg-white border-b border-slate-200/80 px-4 h-14">
+        <img src="/imagenes/logo-chilecompra.png" class="h-7 w-auto max-w-[68px] object-contain" alt="ChileCompra" />
+        <div class="w-px h-5 bg-slate-200"></div>
+        <img src="/imagenes/logo-OCP.png" class="h-5 w-auto max-w-[48px] object-contain" alt="OCP" />
+        <div class="w-px h-5 bg-slate-200"></div>
+        <img src="/imagenes/logo-UCBerkeley.png" class="h-5 w-auto max-w-[48px] object-contain" alt="UC Berkeley" />
+        <div class="w-px h-5 bg-slate-200"></div>
+        <img src="/imagenes/logo-uch2.png" class="h-6 w-auto max-w-[68px] object-contain" alt="Universidad de Chile" />
+      </div>
+
+      <div class="flex-1 flex items-center justify-center px-5 py-10">
+        <div class="w-full max-w-[400px]">
+          <div class="mb-8">
+            <p class="text-[11px] font-semibold text-brand-600 uppercase tracking-[0.16em] mb-3">Asistente IA · Compra Ágil</p>
+            <h2 class="text-[28px] font-semibold text-slate-900 leading-tight">Iniciar sesión</h2>
+            <p class="text-[14px] text-slate-500 mt-2">Accede con tu cuenta institucional para continuar.</p>
+          </div>
+
+          <div class="bg-white border border-slate-200/80 rounded-2xl shadow-panel p-7">
+            {% with messages = get_flashed_messages(with_categories=true) %}
+              {% if messages %}
+                <div class="mb-5 space-y-2">
+                  {% for category, message in messages %}
+                  <div class="rounded-lg px-4 py-3 text-[13px] border bg-red-50 text-red-700 border-red-200">{{ message }}</div>
+                  {% endfor %}
+                </div>
+              {% endif %}
+            {% endwith %}
+
+            {% if motivo == 'mp_invalido' %}
+            <div class="rounded-lg px-4 py-3 text-[13px] bg-amber-50 text-amber-700 border border-amber-200 text-center">
+              <p class="mb-3">No pudimos verificar tu acceso desde Mercado Público.</p>
+              <button type="button" onclick="history.back()"
+                      class="w-full bg-white border border-amber-300 hover:bg-amber-100 text-amber-800 text-[13px] font-medium rounded-lg py-2.5 transition-colors">
+                Volver atrás
+              </button>
+            </div>
+            {% else %}
+            <div class="space-y-3">
+            {% if turnstile_enabled and (google_login_enabled or microsoft_login_enabled) %}
+            <div class="cf-turnstile flex justify-center mb-1" data-sitekey="{{ turnstile_site_key }}" data-callback="onTurnstileSuccess" data-theme="light"></div>
+            {% endif %}
+
+            {% if google_login_enabled %}
+            <form method="POST" action="{{ url_for('auth.login_google') }}">
+              <input type="hidden" name="cf-turnstile-response" id="cf-token-google">
+              <button type="submit"
+                 class="w-full flex items-center justify-center gap-3 bg-white border border-slate-300 hover:bg-slate-50 hover:border-slate-400 hover:shadow-card text-slate-700 text-[13.5px] font-medium rounded-lg py-3 transition-all">
+                <svg class="w-[18px] h-[18px]" viewBox="0 0 24 24">
+                  <path fill="#4285F4" d="M23.52 12.27c0-.85-.08-1.67-.22-2.45H12v4.64h6.47a5.54 5.54 0 01-2.4 3.64v3h3.88c2.27-2.09 3.57-5.17 3.57-8.83z"/>
+                  <path fill="#34A853" d="M12 24c3.24 0 5.95-1.08 7.93-2.9l-3.88-3c-1.08.72-2.45 1.15-4.05 1.15-3.11 0-5.75-2.1-6.69-4.93H1.3v3.1A12 12 0 0012 24z"/>
+                  <path fill="#FBBC05" d="M5.31 14.32a7.2 7.2 0 010-4.64v-3.1H1.3a12 12 0 000 10.84l4.01-3.1z"/>
+                  <path fill="#EA4335" d="M12 4.75c1.76 0 3.34.6 4.58 1.79l3.44-3.44C17.94 1.19 15.24 0 12 0A12 12 0 001.3 6.58l4.01 3.1C6.25 6.85 8.89 4.75 12 4.75z"/>
+                </svg>
+                Continuar con Google
+              </button>
+            </form>
+            {% endif %}
+
+            {% if microsoft_login_enabled %}
+            <form method="POST" action="{{ url_for('auth.login_microsoft') }}">
+              <input type="hidden" name="cf-turnstile-response" id="cf-token-microsoft">
+              <button type="submit"
+                 class="w-full flex items-center justify-center gap-3 bg-white border border-slate-300 hover:bg-slate-50 hover:border-slate-400 hover:shadow-card text-slate-700 text-[13.5px] font-medium rounded-lg py-3 transition-all">
+                <svg class="w-[18px] h-[18px]" viewBox="0 0 21 21">
+                  <rect x="1" y="1" width="9" height="9" fill="#f25022"/>
+                  <rect x="11" y="1" width="9" height="9" fill="#7fba00"/>
+                  <rect x="1" y="11" width="9" height="9" fill="#00a4ef"/>
+                  <rect x="11" y="11" width="9" height="9" fill="#ffb900"/>
+                </svg>
+                Continuar con Microsoft
+              </button>
+            </form>
+            {% endif %}
+
+            {% if not google_login_enabled and not microsoft_login_enabled %}
+            <div class="rounded-lg px-4 py-3 text-[13px] bg-amber-50 text-amber-700 border border-amber-200 text-center">
+              El login no está configurado en este entorno.
+            </div>
+            {% endif %}
+            </div>
+            {% endif %}
+          </div>
+
+          <p class="flex items-start gap-2 text-[12px] text-slate-400 mt-6 leading-relaxed">
+            <svg class="w-3.5 h-3.5 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H6.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z"/></svg>
+            Acceso restringido a cuentas autorizadas. Si necesitas acceso, contacta al administrador.
+          </p>
+        </div>
+      </div>
+    </main>
   </div>
 
   {% if turnstile_enabled %}

@@ -6,79 +6,78 @@
   <title>Asistente IA · Compras Públicas</title>
   <link rel="icon" href="/static/favicon.ico" type="image/x-icon">
 
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,300;0,400;0,500;0,600;0,700;1,400&display=swap" rel="stylesheet">
-
-  <script src="https://cdn.tailwindcss.com"></script>
-  <script>
-    tailwind.config = {
-      theme: {
-        extend: {
-          colors: {
-            brand: {
-              50:  '#e8f0fb',
-              100: '#c5d8f5',
-              200: '#9bbdee',
-              500: '#1e6cc5',
-              600: '#154f96',
-              700: '#0f3d78',
-              800: '#0a2d5e',
-              900: '#061e42',
-            }
-          }
-        }
-      }
-    }
-  </script>
+  {% include "_tailwind.html" %}
 
   <link rel="stylesheet" href="/static/css/style.css" />
 </head>
 
-<body class="h-screen flex flex-col bg-slate-100 overflow-hidden">
+<body class="h-screen flex flex-col bg-executive overflow-hidden">
 
   {% include "_header.html" %}
 
-  <main class="flex-1 flex flex-col items-center justify-center px-4 overflow-y-auto py-10">
-    <div class="text-center mb-10">
-      <h1 class="text-xl lg:text-2xl font-semibold text-slate-800 mb-1.5">¿Qué necesitas especificar hoy?</h1>
-      <p class="text-[13px] text-slate-500">Elige una categoría para empezar</p>
-    </div>
+  <main class="flex-1 overflow-y-auto">
+    <div class="max-w-4xl mx-auto px-5 lg:px-8 py-10 lg:py-16">
+      <div class="mb-9 lg:mb-12">
+        <p class="text-[11px] font-semibold text-brand-600 uppercase tracking-[0.16em] mb-3">Panel de inicio</p>
+        <h1 class="text-[26px] lg:text-[34px] font-semibold text-slate-900 leading-tight">
+          {% if user_name %}Hola, {{ user_name.split(' ')[0] }}.{% else %}Bienvenido.{% endif %}
+          <span class="text-slate-400 font-normal">¿Qué necesitas especificar hoy?</span>
+        </h1>
+        <p class="text-[14px] text-slate-500 mt-3 max-w-xl leading-relaxed">Selecciona una categoría para preparar la ficha técnica de tu compra con apoyo de IA y precios de referencia de Compra Ágil.</p>
+      </div>
 
-    {% if sections %}
-    <div class="grid grid-cols-1 sm:grid-cols-2 gap-5 w-full max-w-2xl">
-      {% for s in sections %}
-      {% if s.slug == "computadores" %}
-      <a href="{{ url_for('computadores') }}"
-         class="group bg-white border border-slate-200 rounded-2xl shadow-sm hover:shadow-md hover:border-brand-300 transition-all p-7 flex flex-col items-center text-center">
-        <div class="w-14 h-14 rounded-xl bg-brand-50 group-hover:bg-brand-100 flex items-center justify-center mb-4 transition-colors">
-          <svg class="w-7 h-7 text-brand-600" fill="none" stroke="currentColor" stroke-width="1.75" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M9 17.25v1.007a3 3 0 01-.879 2.122L7.5 21h9l-.621-.621A3 3 0 0115 18.257V17.25m6-12V15a2.25 2.25 0 01-2.25 2.25H5.25A2.25 2.25 0 013 15V5.25m18 0A2.25 2.25 0 0018.75 3H5.25A2.25 2.25 0 003 5.25m18 0V12a2.25 2.25 0 01-2.25 2.25H5.25A2.25 2.25 0 013 12V5.25"/>
-          </svg>
-        </div>
-        <h2 class="text-[15px] font-semibold text-slate-800 mb-1">Computadores</h2>
-        <p class="text-[12.5px] text-slate-500 leading-relaxed">Asistente conversacional que arma la ficha técnica y estima precios de referencia.</p>
-      </a>
-      {% elif s.slug == "medicamentos" %}
-      <a href="{{ url_for('medicamentos') }}"
-         class="group bg-white border border-slate-200 rounded-2xl shadow-sm hover:shadow-md hover:border-brand-300 transition-all p-7 flex flex-col items-center text-center">
-        <div class="w-14 h-14 rounded-xl bg-brand-50 group-hover:bg-brand-100 flex items-center justify-center mb-4 transition-colors">
-          <svg class="w-7 h-7 text-brand-600" fill="none" stroke="currentColor" stroke-width="1.75" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6.75-6.75a4.5 4.5 0 116.364 6.364l-6.75 6.75a4.5 4.5 0 11-6.364-6.364z"/>
-            <path stroke-linecap="round" stroke-linejoin="round" d="M9 8.25l6 6"/>
-          </svg>
-        </div>
-        <h2 class="text-[15px] font-semibold text-slate-800 mb-1">Medicamentos</h2>
-        <p class="text-[12.5px] text-slate-500 leading-relaxed">Buscador inteligente: escribe un nombre, principio activo, dosis o laboratorio y encuentra las variantes.</p>
-      </a>
+      {% if sections %}
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-5 w-full">
+        {% for s in sections %}
+        {% if s.slug == "computadores" %}
+        <a href="{{ url_for('computadores') }}"
+           class="group relative bg-white border border-slate-200/80 rounded-2xl shadow-card hover:shadow-lift hover:-translate-y-0.5 hover:border-brand-200 transition-all duration-200 p-6 lg:p-7 flex flex-col overflow-hidden">
+          <div class="absolute inset-x-0 top-0 h-[3px] bg-gradient-to-r from-brand-700 to-brand-400 opacity-0 group-hover:opacity-100 transition-opacity"></div>
+          <div class="flex items-start justify-between mb-6">
+            <div class="w-12 h-12 rounded-xl bg-gradient-to-br from-brand-50 to-brand-100 ring-1 ring-brand-100 flex items-center justify-center">
+              <svg class="w-6 h-6 text-brand-700" fill="none" stroke="currentColor" stroke-width="1.6" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M9 17.25v1.007a3 3 0 01-.879 2.122L7.5 21h9l-.621-.621A3 3 0 0115 18.257V17.25m6-12V15a2.25 2.25 0 01-2.25 2.25H5.25A2.25 2.25 0 013 15V5.25m18 0A2.25 2.25 0 0018.75 3H5.25A2.25 2.25 0 003 5.25m18 0V12a2.25 2.25 0 01-2.25 2.25H5.25A2.25 2.25 0 013 12V5.25"/>
+              </svg>
+            </div>
+            <span class="text-[10px] font-semibold text-slate-400 uppercase tracking-[0.12em] pt-1">Categoría 01</span>
+          </div>
+          <h2 class="text-[17px] font-semibold text-slate-900 mb-1.5">Computadores</h2>
+          <p class="text-[13px] text-slate-500 leading-relaxed mb-6">Asistente conversacional que arma la ficha técnica y estima precios de referencia.</p>
+          <div class="mt-auto flex items-center gap-1.5 text-[12.5px] font-semibold text-brand-600 group-hover:text-brand-700">
+            Abrir asistente
+            <svg class="w-4 h-4 transition-transform group-hover:translate-x-1" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3"/></svg>
+          </div>
+        </a>
+        {% elif s.slug == "medicamentos" %}
+        <a href="{{ url_for('medicamentos') }}"
+           class="group relative bg-white border border-slate-200/80 rounded-2xl shadow-card hover:shadow-lift hover:-translate-y-0.5 hover:border-brand-200 transition-all duration-200 p-6 lg:p-7 flex flex-col overflow-hidden">
+          <div class="absolute inset-x-0 top-0 h-[3px] bg-gradient-to-r from-brand-700 to-brand-400 opacity-0 group-hover:opacity-100 transition-opacity"></div>
+          <div class="flex items-start justify-between mb-6">
+            <div class="w-12 h-12 rounded-xl bg-gradient-to-br from-brand-50 to-brand-100 ring-1 ring-brand-100 flex items-center justify-center">
+              <svg class="w-6 h-6 text-brand-700" fill="none" stroke="currentColor" stroke-width="1.6" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6.75-6.75a4.5 4.5 0 116.364 6.364l-6.75 6.75a4.5 4.5 0 11-6.364-6.364z"/>
+                <path stroke-linecap="round" stroke-linejoin="round" d="M9 8.25l6 6"/>
+              </svg>
+            </div>
+            <span class="text-[10px] font-semibold text-slate-400 uppercase tracking-[0.12em] pt-1">Categoría 02</span>
+          </div>
+          <h2 class="text-[17px] font-semibold text-slate-900 mb-1.5">Medicamentos</h2>
+          <p class="text-[13px] text-slate-500 leading-relaxed mb-6">Buscador inteligente: escribe un nombre, principio activo, dosis o laboratorio y encuentra las variantes.</p>
+          <div class="mt-auto flex items-center gap-1.5 text-[12.5px] font-semibold text-brand-600 group-hover:text-brand-700">
+            Abrir buscador
+            <svg class="w-4 h-4 transition-transform group-hover:translate-x-1" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3"/></svg>
+          </div>
+        </a>
+        {% endif %}
+        {% endfor %}
+      </div>
+      {% else %}
+      <div class="bg-white border border-slate-200/80 rounded-2xl shadow-card p-8 max-w-lg">
+        <p class="text-[14px] font-semibold text-slate-800 mb-1.5">Sin secciones habilitadas</p>
+        <p class="text-[13px] text-slate-500 leading-relaxed">Tu cuenta todavía no tiene ninguna sección habilitada. Pídele a un administrador que te asigne acceso en el módulo Aplicaciones del panel.</p>
+      </div>
       {% endif %}
-      {% endfor %}
     </div>
-    {% else %}
-    <div class="text-center max-w-md">
-      <p class="text-[13.5px] text-slate-500">Tu cuenta todavía no tiene ninguna sección habilitada. Pídele a un administrador que te asigne acceso en el módulo Aplicaciones del panel.</p>
-    </div>
-    {% endif %}
   </main>
 
   {% include "_session_modal.html" %}

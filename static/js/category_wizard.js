@@ -54,6 +54,7 @@ const forceChooseAttrs = new Set();
 const multiDraft = {};          // {attr: Set} -- selección en progreso de un paso enum_multi
 const rangeModeDraft = new Set(); // attrs mostrando el control de rango en vez del slider único (ver numericOptionalControlHtml)
 let clarifyNotice = null;       // {message, question} -- la IA no pudo resolver el primer paso core
+let offTopicNotice = null;      // string -- se llenó tipo_equipo="Otro" (ver handleOffTopicProduct), el aviso que se muestra al volver a la pantalla de texto
 let currentTextoOriginal = '';
 let editingOptionalAttr = null; // attr de "detalles opcionales" en edición de a uno, o null (ver optionalAttrEditScreenHtml)
 
@@ -583,6 +584,7 @@ function analizar() {
   icon.classList.add('animate-spin');
   hint.textContent = 'Analizando...';
   clarifyNotice = null;
+  offTopicNotice = null;
 
   // Espera a que el schema ya esté cargado antes de mandar el texto --
   // así cuando lleguen los eventos SSE (ficha_update dispara renderScreen())
@@ -597,6 +599,11 @@ function analizar() {
     }))
     .then(res => res ? readSSEStream(res, handleWizardEvent) : null)
     .then(() => {
+      // Si el stream ya cortó el flujo por tipo_equipo="Otro" (ver
+      // handleOffTopicProduct, disparado dentro de handleWizardEvent),
+      // showingTextScreen ya quedó en true con el aviso puesto -- no pisarlo
+      // forzando el avance normal acá.
+      if (offTopicNotice) { renderHistorySidebar(); return; }
       showingTextScreen = false;
       renderScreen();
       renderHistorySidebar(); // primer guardado de esta sesión -- recién ahora aparece en la lista
@@ -623,6 +630,20 @@ function handleWizardEvent(data) {
   switch (data.type) {
     case 'ficha_update':
       data.updates.forEach(u => { ficha[u.attribute] = u; });
+      // "Otro" es un valor real del esquema (tipo_equipo admite Laptop/AIO/
+      // Desktop/Otro) que el extractor de IA usa cuando lo descrito no es
+      // ninguno de los tres -- ej. pidieron una impresora o un monitor.
+      // Reporte real: "si se solicita un producto que no corresponde
+      // aparece Otros, no debería dejar continuar". Se corta ACÁ (cubre
+      // tanto el análisis de texto libre como cualquier manual_update que
+      // termine fijando este valor, ambos pasan por este mismo evento) en
+      // vez de dejar avanzar el wizard con una categoría que price_service/
+      // cm_service igual excluyen más adelante (cm_service.py ya filtra
+      // `tipo_equipo <> 'Otro'` al armar el catálogo).
+      if (ficha.tipo_equipo?.value === 'Otro') {
+        handleOffTopicProduct();
+        break;
+      }
       renderScreen();
       break;
     case 'message':
@@ -795,10 +816,31 @@ function renderScreen() {
 }
 
 function textoScreenHtml() {
+  const offTopicBanner = offTopicNotice ? `
+    <div class="mb-4 px-4 py-3 bg-amber-50 border border-amber-200 rounded-xl text-left wiz-pop">
+      <p class="text-[13px] font-medium text-amber-800 leading-snug">${escapeHtml(offTopicNotice)}</p>
+    </div>` : '';
+  // Reporte real: "no sé si estoy añadiendo una nueva compra al mismo
+  // requerimiento o si estoy añadiendo un nuevo requerimiento" -- cart no
+  // se vacía al volver acá después de "Agregar esta compra al requerimiento"
+  // (ver agregarRequerimiento), así que si ya hay algo en el carrito, esta
+  // pantalla en blanco es SIEMPRE para sumar la siguiente compra al MISMO
+  // requerimiento. Dejarlo explícito, y separar aparte (con confirmación,
+  // ver confirmarNuevoRequerimiento) la acción real de abandonar todo.
+  const continuingBanner = (cart.length > 0 && !offTopicNotice) ? `
+    <div class="mb-4 px-4 py-3 bg-emerald-50 border border-emerald-200 rounded-xl text-left flex items-start justify-between gap-3">
+      <div class="min-w-0">
+        <p class="text-[12.5px] font-semibold text-emerald-800">Agregando la compra ${cart.length + 1} a este requerimiento</p>
+        <p class="text-[11.5px] text-emerald-600 mt-0.5 leading-snug">Ya tienes ${cart.length} compra${cart.length === 1 ? '' : 's'} en tu cotización -- lo que describas acá se suma al mismo requerimiento.</p>
+      </div>
+      <button type="button" data-nuevo-requerimiento-completo class="flex-shrink-0 text-[11px] font-medium text-emerald-700 hover:text-emerald-900 underline whitespace-nowrap">¿Requerimiento distinto?</button>
+    </div>` : '';
   return `
     <div class="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm text-center">
       <h1 class="text-lg font-semibold text-slate-800 mb-1.5">${CONFIG.introTitle}</h1>
       <p class="text-[13px] text-slate-500 mb-5">${CONFIG.introSubtitle}</p>
+      ${offTopicBanner}
+      ${continuingBanner}
       <textarea id="wiz-texto-input" rows="3" placeholder="Escribe acá..."
                 class="w-full resize-none bg-slate-50 border border-slate-200 rounded-lg px-3.5 py-2.5 text-[14px] text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500 focus:bg-white transition-all text-left"></textarea>
       <p id="wiz-analizar-hint" class="text-[11.5px] text-slate-400 mt-2 text-left min-h-[16px]"></p>
@@ -1081,6 +1123,14 @@ function detallesScreenHtml() {
 // uno para la búsqueda".
 const SINGLE_VALUE_ONLY_DICT_ATTRS = new Set(['procesador_principal']);
 
+// "Otro" es un valor real y necesario en el esquema (el extractor de IA lo
+// usa para clasificar texto que no describe ningún computador -- ver
+// handleOffTopicProduct), pero nunca debe ofrecerse como opción elegible a
+// mano: no tiene sentido que la persona elija a propósito "no es un
+// computador" desde los chips del paso. Si igual llega a fijarse (por acá
+// o por la IA), el wizard corta el flujo apenas se detecta.
+const HIDDEN_PICKER_VALUES = { tipo_equipo: new Set(['Otro']) };
+
 // Reutiliza los mismos controles por tipo que ya usan los pasos core
 // (booleanControlHtml/sliderHtml/multiChipsControlHtml son genéricos por
 // atributo, no por "paso" -- el parámetro step que piden se resuelve con
@@ -1252,7 +1302,7 @@ function resumenScreenHtml() {
 
   return `
     <div class="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
-      <p class="text-[11px] font-semibold text-emerald-600 uppercase tracking-wide mb-3">✓ Requerimiento listo</p>
+      <p class="text-[11px] font-semibold text-emerald-600 uppercase tracking-wide mb-3">✓ Compra lista para agregar</p>
       <div class="flex flex-wrap gap-1.5 mb-2">${coreChips}</div>
       ${optionalChips ? `<div class="flex flex-wrap gap-1.5 mb-4">${optionalChips}</div>` : ''}
 
@@ -1260,9 +1310,9 @@ function resumenScreenHtml() {
 
       <button type="button" data-agregar class="w-full flex items-center justify-center gap-2 py-3 bg-emerald-600 hover:bg-emerald-700 text-white text-[13.5px] font-semibold rounded-xl transition-colors mb-2">
         <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/></svg>
-        Agregar a la cotización
+        Agregar esta compra al requerimiento
       </button>
-      <button type="button" data-nuevo-requerimiento class="w-full text-[12px] text-slate-400 hover:text-brand-600 py-1 transition-colors">Empezar otro requerimiento sin guardar este</button>
+      <button type="button" data-nuevo-requerimiento class="w-full text-[12px] text-slate-400 hover:text-brand-600 py-1 transition-colors">Descartar esta compra y empezar de nuevo</button>
     </div>`;
 }
 
@@ -1282,6 +1332,8 @@ function bindScreenEvents() {
   if (skipToManual) skipToManual.addEventListener('click', () => {
     schemaReady.then(() => { showingTextScreen = false; renderScreen(); });
   });
+  const nuevoRequerimientoCompleto = screenEl.querySelector('[data-nuevo-requerimiento-completo]');
+  if (nuevoRequerimientoCompleto) nuevoRequerimientoCompleto.addEventListener('click', confirmarNuevoRequerimiento);
 
   screenEl.querySelectorAll('[data-edit-optional]').forEach(btn => {
     btn.addEventListener('click', () => { editingOptionalAttr = btn.dataset.editOptional; renderScreen(); });
@@ -1499,7 +1551,10 @@ function refreshFacetsFor(steps) {
       .then(data => {
         if (!data) return;
         const raw = data.values || [];
-        facetsCache[attr] = raw.map(v => (typeof v === 'string' ? { value: v, count: null } : v));
+        const hidden = HIDDEN_PICKER_VALUES[attr];
+        facetsCache[attr] = raw
+          .map(v => (typeof v === 'string' ? { value: v, count: null } : v))
+          .filter(v => !hidden || !hidden.has(v.value));
         if (meta.type === 'enum_multi') {
           const container = screenEl.querySelector(`[data-multi-chips="${attr}"]`);
           if (container) {
@@ -2017,7 +2072,7 @@ function renderDocPreview() {
           <h1>${escapeHtml(CONFIG.docTitle)}</h1>
           <p>Asistente IA Compras Públicas</p>
         </div>
-        <p style="font-size:12px; color:#94a3b8; text-align:center; padding:32px 0;">A medida que vayas armando requerimientos, acá vas a ver el documento tomando forma.</p>
+        <p style="font-size:12px; color:#94a3b8; text-align:center; padding:32px 0;">A medida que vayas agregando compras a este requerimiento, acá vas a ver el documento tomando forma.</p>
       </div>`;
     return;
   }
@@ -2062,11 +2117,49 @@ function resetWizardState() {
   transaccionesState.page = 1;
   transaccionesState.total = 0;
   cmState.page = 1;
+  offTopicNotice = null;
 }
 
 function empezarNuevoRequerimiento() {
   apiFetch(`/api/categories/${CONFIG.slug}/reset/${SESSION_ID}`, { method: 'POST', headers: _headers() }).catch(() => {});
   resetWizardState();
+  renderScreen();
+}
+
+// A diferencia de empezarNuevoRequerimiento() (que solo descarta el borrador
+// en curso, el carrito queda intacto -- ver botón "Descartar esta compra..."
+// en el resumen), esto es la acción real de ABANDONAR el requerimiento
+// completo: vacía el carrito entero. Reporte real: "si quiero ir a un nuevo
+// requerimiento, debería aparecer una alerta... de que se está abandonando
+// el requerimiento" -- antes "Vaciar cotización" lo hacía sin avisar nada.
+function confirmarNuevoRequerimiento() {
+  if (cart.length) {
+    const n = cart.length;
+    const ok = confirm(
+      `Tienes ${n} compra${n === 1 ? '' : 's'} agregada${n === 1 ? '' : 's'} a este requerimiento. ` +
+      `Empezar uno nuevo las va a eliminar de la cotización actual. ¿Seguro que quieres continuar?`
+    );
+    if (!ok) return;
+    cart = [];
+    saveCart();
+    renderCartBar();
+  }
+  empezarNuevoRequerimiento();
+}
+
+// Corta el flujo apenas tipo_equipo="Otro" (ver case 'ficha_update' en
+// handleWizardEvent) -- vuelve a la pantalla de texto inicial con un aviso
+// amistoso, en vez de dejar avanzar el wizard con un producto que esta
+// herramienta no cubre. Se resetea también la sesión en el backend (igual
+// que empezarNuevoRequerimiento) para no arrastrar tipo_equipo="Otro" ni el
+// resto de la ficha a medio llenar si la persona vuelve a intentar con una
+// descripción real en la misma sesión.
+function handleOffTopicProduct() {
+  apiFetch(`/api/categories/${CONFIG.slug}/reset/${SESSION_ID}`, { method: 'POST', headers: _headers() }).catch(() => {});
+  resetWizardState();
+  offTopicNotice = CONFIG.offTopicMessage ||
+    'Este asistente está diseñado específicamente para especificar computadores (laptops, equipos todo-en-uno o de escritorio). ' +
+    'Lo que describiste no corresponde a ese tipo de equipo -- contanos qué computador necesitás (uso, procesador, RAM, almacenamiento, etc.) y seguimos.';
   renderScreen();
 }
 
@@ -2136,21 +2229,24 @@ function reqPriceRowsHtml(price, cmPrice) {
 function reqBlockHtml(texto, atributos, price, cmPrice, descripcion, index) {
   return `
     <div class="req">
-      <p class="req-title">Requerimiento ${index}</p>
+      <p class="req-title">Compra ${index}</p>
       <p class="req-texto"><span style="font-style:normal; font-weight:700; color:#334155;">Observación del comprador:</span> ${escapeHtml(texto || 'Sin observación')}</p>
       ${descripcion ? `<p class="req-desc">${escapeHtml(descripcion)}</p>` : ''}
       <table class="req-table">${reqAttrsRowsHtml(atributos)}${reqPriceRowsHtml(price, cmPrice)}</table>
     </div>`;
 }
 
-function cartItemCardHtml(item) {
+function cartItemCardHtml(item, index) {
   const price = item.price
     ? `<p class="text-[13px] font-semibold text-emerald-700 mt-1.5">${formatCLP(item.price.median)} <span class="text-[10.5px] font-normal text-slate-400">mediana estimada</span></p>`
     : `<p class="text-[11px] text-slate-400 mt-1.5">Sin estimación de precio disponible</p>`;
   return `
     <div class="border border-slate-200 rounded-xl px-3.5 py-3">
       <div class="flex items-start justify-between gap-2">
-        <p class="text-[12.5px] font-semibold text-slate-800 leading-snug flex-1 min-w-0">${escapeHtml(item.texto_original || 'Requerimiento')}</p>
+        <div class="flex-1 min-w-0">
+          <p class="text-[9.5px] font-bold text-emerald-600 uppercase tracking-wide">Compra ${index}</p>
+          <p class="text-[12.5px] font-semibold text-slate-800 leading-snug">${escapeHtml(item.texto_original || 'Sin descripción')}</p>
+        </div>
         <button data-cart-remove="${item.id}" aria-label="Eliminar" class="text-slate-300 hover:text-red-500 transition-colors flex-shrink-0">
           <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
         </button>
@@ -2162,10 +2258,10 @@ function cartItemCardHtml(item) {
 
 function renderCartPanel() {
   if (!cart.length) {
-    cartItemsEl.innerHTML = `<div class="text-center py-16 text-slate-400"><p class="text-[13px]">Aún no has agregado requerimientos a tu cotización.</p></div>`;
+    cartItemsEl.innerHTML = `<div class="text-center py-16 text-slate-400"><p class="text-[13px]">Aún no has agregado compras a este requerimiento.</p></div>`;
     return;
   }
-  cartItemsEl.innerHTML = cart.map(cartItemCardHtml).join('');
+  cartItemsEl.innerHTML = cart.map((item, i) => cartItemCardHtml(item, i + 1)).join('');
   cartItemsEl.querySelectorAll('[data-cart-remove]').forEach(btn => {
     btn.addEventListener('click', () => {
       cart = cart.filter(i => i.id !== btn.dataset.cartRemove);
@@ -2529,6 +2625,9 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('cart-backdrop').addEventListener('click', closeCartPanel);
   cartPanel.addEventListener('click', handleRevisadosClick);
   document.getElementById('cart-empty-btn').addEventListener('click', () => {
+    if (!cart.length) return;
+    const n = cart.length;
+    if (!confirm(`Esto elimina las ${n} compra${n === 1 ? '' : 's'} agregadas a este requerimiento. ¿Seguro que quieres vaciar la cotización?`)) return;
     cart = [];
     saveCart();
     renderCartBar();

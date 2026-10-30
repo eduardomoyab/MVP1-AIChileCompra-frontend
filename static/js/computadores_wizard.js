@@ -21,6 +21,12 @@ const CONFIG = {
   introTitle: '¿Qué computador necesitas?',
   introSubtitle: 'Escribe tu requerimiento con lo que ya sepas -- aunque sea poco -- y lo iremos completando juntos paso a paso (ej. "notebook para el área legal" o "i5-1335U, 16GB RAM, 512GB SSD").',
 
+  // Se muestra cuando lo descrito no corresponde a ningún computador (el
+  // extractor clasifica tipo_equipo="Otro") -- ver handleOffTopicProduct
+  // en category_wizard.js.
+  offTopicMessage: 'Este asistente está diseñado específicamente para especificar computadores (laptops, equipos todo-en-uno o de escritorio). ' +
+    'Lo que describiste no corresponde a ese tipo de equipo -- contanos qué computador necesitás (uso, procesador, RAM, almacenamiento, etc.) y seguimos.',
+
   logicalSteps: {
     linea_procesador_o_procesador: {
       attr: 'linea_procesador',

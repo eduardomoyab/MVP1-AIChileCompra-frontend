@@ -19,13 +19,33 @@ const CONFIG = {
   supportsConvenioMarco: true,
 
   introTitle: '¿Qué computador necesitas?',
-  introSubtitle: 'Escribe tu requerimiento con lo que ya sepas -- aunque sea poco -- y lo iremos completando juntos paso a paso (ej. "notebook para el área legal" o "i5-1335U, 16GB RAM, 512GB SSD").',
+
+  // Pantalla de ingreso (ver inputScreenHtml en shell.js).
+  inputHelper: 'Describe las características del equipo que necesitas. Completamos el resto juntos.',
+  inputPlaceholder: 'Ej.: notebook con procesador Intel Core i5, 16 GB de RAM y 512 GB SSD…',
+  exampleText: 'Notebook con procesador i5, 16 GB de RAM y 512 GB SSD',
+  guide: [
+    { title: 'Tipo de equipo', text: 'Laptop, todo en uno o escritorio' },
+    { title: 'Procesador', text: 'Línea o modelo, si lo conoces' },
+    { title: 'Memoria RAM', text: 'Capacidad en GB' },
+    { title: 'Almacenamiento', text: 'Tipo y capacidad' },
+  ],
+  manualStart: {
+    attr: 'tipo_equipo',
+    title: 'Tipo de equipo',
+    hint: 'Después te preguntamos procesador, memoria y almacenamiento.',
+    options: [
+      { value: 'Laptop', desc: 'Notebook o portátil' },
+      { value: 'AIO', desc: 'Todo en uno: pantalla y equipo integrados' },
+      { value: 'Desktop', desc: 'Torre o mini PC, monitor aparte' },
+    ],
+  },
 
   // Se muestra cuando lo descrito no corresponde a ningún computador (el
   // extractor clasifica tipo_equipo="Otro") -- ver handleOffTopicProduct
   // en category_wizard.js.
   offTopicMessage: 'Este asistente está diseñado específicamente para especificar computadores (laptops, equipos todo-en-uno o de escritorio). ' +
-    'Lo que describiste no corresponde a ese tipo de equipo -- contanos qué computador necesitás (uso, procesador, RAM, almacenamiento, etc.) y seguimos.',
+    'Lo que describiste no corresponde a ese tipo de equipo -- contanos qué computador necesitás (procesador, RAM, almacenamiento, etc.) y seguimos.',
 
   logicalSteps: {
     linea_procesador_o_procesador: {

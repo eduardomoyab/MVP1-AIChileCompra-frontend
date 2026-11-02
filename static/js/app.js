@@ -12,6 +12,11 @@
 const _SESSION_ID_KEY = 'compra_agil_session_id';
 let SESSION_ID = crypto.randomUUID();
 
+// Mismo arreglo que category_wizard.js/medicamentos.js (ver _wizardCallSeq):
+// commitEdit() no tenía guardia contra que una edición más lenta llegue
+// DESPUÉS de una más nueva y pise su resultado ya renderizado.
+let _legacyEditSeq = 0;
+
 function _setSessionId(id) {
   SESSION_ID = id;
   try { localStorage.setItem(_SESSION_ID_KEY, id); } catch (e) { /* modo privado, etc. */ }
@@ -854,13 +859,20 @@ function commitEdit(attr, value) {
     showPriceLoading();
   }
 
+  const mySeq = ++_legacyEditSeq;
   apiFetch(`/api/manual_update/${SESSION_ID}`, {
     method: 'POST',
     headers: _headers(),
     body: JSON.stringify({ attribute: attr, value }),
   })
-    .then(res => { if (res) return readSSEStream(res, handleServerMessage); hidePriceLoading(true); })
-    .then(() => refreshSidebarAfterTurn())
+    .then(res => {
+      if (res) return readSSEStream(res, (data) => {
+        if (mySeq !== _legacyEditSeq) return; // ver _legacyEditSeq -- respuesta obsoleta, se ignora
+        handleServerMessage(data);
+      });
+      hidePriceLoading(true);
+    })
+    .then(() => { if (mySeq === _legacyEditSeq) refreshSidebarAfterTurn(); })
     .catch(err => {
       console.error('Error en manual_update:', err);
       hidePriceLoading(true);

@@ -164,6 +164,37 @@ function rsRenderBody() {
   rsEnsureMarket(x);
 }
 
+/* ── Gráficos de diferencia frente a la mediana (barras a izquierda/derecha del cero) ──
+   La escala se ajusta a los datos: el menor tope "redondo" que contiene las
+   diferencias (y el rango típico). Un valor extremo, muy por sobre el resto,
+   no encoge a los demás: su barra se corta con una marca y su cifra real va
+   escrita al lado. */
+const RS_SPANS = [10, 20, 30, 40, 60, 80, 100, 150, 200, 300, 400, 600, 800, 1000];
+function rsDivScale(deltas, extra = []) {
+  const abs = deltas.filter(Number.isFinite).map(Math.abs).sort((a, b) => b - a);
+  let ref = abs[0] || 0;
+  if (abs.length >= 3 && abs[0] > abs[1] * 2.5) ref = abs[1] * 1.15;   // valor extremo
+  ref = Math.max(ref, 5, ...extra.filter(Number.isFinite).map(Math.abs));
+  return RS_SPANS.find(sp => sp >= ref * 1.05) || RS_SPANS[RS_SPANS.length - 1];
+}
+const rsPctTxt = (n) => (Math.round(n * 10) / 10).toString().replace('.', ',') + ' %';
+const rsDivPos = (d, span) => 50 + Math.max(-span, Math.min(span, d)) / span * 50;
+function rsDivBar(d, span, color) {
+  const pos = rsDivPos(d, span);
+  const cut = Math.abs(d) > span ? (d < 0 ? ' cut-l' : ' cut-r') : '';
+  return `<div class="bar${cut}" style="left:${Math.min(50, pos).toFixed(1)}%;width:${Math.abs(pos - 50).toFixed(1)}%;background:${color}"></div>`;
+}
+const rsDivGrid = () => '<div class="gl" style="left:25%"></div><div class="gl" style="left:75%"></div>';
+function rsDivAxis(span) {
+  return `<div class="rs-axis5">
+    <span class="l">${rsPctTxt(span)} más barato</span>
+    <span style="left:25%">−${rsPctTxt(span / 2)}</span>
+    <b style="left:50%">Mediana</b>
+    <span style="left:75%">+${rsPctTxt(span / 2)}</span>
+    <span class="r">${rsPctTxt(span)} más caro</span>
+  </div>`;
+}
+
 /* ── General: el requerimiento completo ─────────────────────────── */
 
 function rsGeneralHtml(items) {
@@ -212,8 +243,8 @@ function rsGeneralHtml(items) {
       ${RSC.hasCm ? `<div class="r nm" style="${x.cm == null ? 'color:#64748b' : ''}">${x.cm == null ? 'Sin datos' : rsClp(x.cm)}</div>` : ''}
     </div>`).join('');
 
-  // Convenio Marco frente a Compra Ágil (escala ±10 %)
-  const SPG = 10;
+  // Convenio Marco frente a Compra Ágil (la escala se ajusta a las diferencias reales)
+  const SPG = rsDivScale(items.filter(x => x.cm != null && x.ca != null).map(x => (x.cm / x.ca - 1) * 100));
   const diff = items.map(x => {
     if (x.cm == null || x.ca == null) {
       return `
@@ -224,12 +255,11 @@ function rsGeneralHtml(items) {
       </div>`;
     }
     const d = (x.cm / x.ca - 1) * 100;
-    const pos = 50 + Math.max(-SPG, Math.min(SPG, d)) / SPG * 50;
     const color = d < 0 ? '#154f96' : '#c2410c';
     return `
       <div class="rs-row">
         <div class="name" title="${rsE(x.name)}"><b>${x.num}</b>${rsE(x.name)}</div>
-        <div class="rs-dplot"><div class="zero"></div><div class="bar" style="left:${Math.min(50, pos).toFixed(1)}%;width:${Math.abs(pos - 50).toFixed(1)}%;background:${color}"></div></div>
+        <div class="rs-dplot"${Math.abs(d) > SPG ? ` title="${rsE(rsDelta(d))} (fuera de escala)"` : ''}>${rsDivGrid()}<div class="zero"></div>${rsDivBar(d, SPG, color)}</div>
         <div class="val"><b>${rsClp(x.cm)}</b> <b style="color:${color}">${rsDelta(d)}</b></div>
       </div>`;
   }).join('');
@@ -268,7 +298,7 @@ function rsGeneralHtml(items) {
           <div><span class="rs-sw" style="background:#c2410c"></span>Catálogo más caro</div>
         </div>
         <div class="rs-rows">${diff}</div>
-        <div class="rs-row" style="margin-top:-2px"><div></div><div class="rs-axis"><span>10 % más barato</span><b>Igual</b><span>10 % más caro</span></div><div></div></div>
+        <div class="rs-row" style="margin-top:-2px"><div></div>${rsDivAxis(SPG)}<div></div></div>
       </div>
       ` : ''}
     </div>`;
@@ -683,24 +713,25 @@ function rsRevisadosHtml(x) {
     return `<div class="rs-flow t24" id="rs-rev" style="gap:12px">${title}<div class="rs-note">No marcaste productos para revisar en este ítem. Puedes hacerlo desde el asistente, en las compras históricas o en los productos de Convenio Marco.</div></div>`;
   }
 
-  // Convenio Marco revisado frente a la mediana de Compra Ágil (escala ±15 %)
+  // Convenio Marco revisado frente a la mediana de Compra Ágil (escala ajustada a los datos)
   const cm = revs.filter(r => r.source === 'cm' && Number.isFinite(r.price));
   let chart = '';
   if (cm.length && x.ca != null) {
-    const SPAN = 15;
-    const posOf = (d) => 50 + Math.max(-SPAN, Math.min(SPAN, d)) / SPAN * 50;
     const hasBand = x.p25 != null && x.p75 != null;
-    const bLo = hasBand ? posOf((x.p25 / x.ca - 1) * 100) : 0, bHi = hasBand ? posOf((x.p75 / x.ca - 1) * 100) : 0;
+    const dLo = hasBand ? (x.p25 / x.ca - 1) * 100 : NaN, dHi = hasBand ? (x.p75 / x.ca - 1) * 100 : NaN;
+    const SPAN = rsDivScale(cm.map(r => (rsRevPrice(r) / x.ca - 1) * 100), [dLo, dHi]);
+    const bLo = hasBand ? rsDivPos(dLo, SPAN) : 0, bHi = hasBand ? rsDivPos(dHi, SPAN) : 0;
     const rows = cm.map(r => {
-      const d = (rsRevPrice(r) / x.ca - 1) * 100, pos = posOf(d), neg = d < 0;
+      const d = (rsRevPrice(r) / x.ca - 1) * 100, neg = d < 0;
       const color = neg ? '#154f96' : '#c2410c';
       return `
         <div class="rs-row" style="grid-template-columns:170px minmax(0,1fr) 118px">
           <div class="name" title="${rsE(r.label)}">${rsE(r.label)}</div>
-          <div class="rs-dplot tall">
+          <div class="rs-dplot tall"${Math.abs(d) > SPAN ? ` title="${rsE(rsDelta(d))} (fuera de escala)"` : ''}>
             ${hasBand ? `<div class="band" style="left:${bLo.toFixed(1)}%;width:${(bHi - bLo).toFixed(1)}%"></div>` : ''}
+            ${rsDivGrid()}
             <div class="zero"></div>
-            <div class="bar" style="left:${Math.min(50, pos).toFixed(1)}%;width:${Math.abs(pos - 50).toFixed(1)}%;background:${color}"></div>
+            ${rsDivBar(d, SPAN, color)}
           </div>
           <div class="val"><b>desde ${rsClp(rsRevPrice(r))}</b><br><b style="color:${color}">${rsDelta(d)}</b></div>
         </div>`;
@@ -716,7 +747,7 @@ function rsRevisadosHtml(x) {
           <div><span class="rs-sw" style="background:#c2410c"></span>Más caro que la mediana</div>
         </div>
         <div class="rs-rows" style="gap:14px;padding:7px 0">${rows}</div>
-        <div class="rs-row" style="grid-template-columns:170px minmax(0,1fr) 118px"><div></div><div class="rs-axis"><span>15 % más barato</span><b>Mediana</b><span>15 % más caro</span></div><div></div></div>
+        <div class="rs-row" style="grid-template-columns:170px minmax(0,1fr) 118px"><div></div>${rsDivAxis(SPAN)}<div></div></div>
       </div>`;
   }
 

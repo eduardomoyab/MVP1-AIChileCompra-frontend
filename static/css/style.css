@@ -157,13 +157,13 @@ h1, h2, h3 { letter-spacing: -0.02em; }
   filter: brightness(.96);
 }
 :is(#wiz-screen, #med-screen, #cart-panel) button.bg-emerald-600 {
-  background-image: linear-gradient(180deg, #10a06f, #047857);
+  background-image: linear-gradient(180deg, #0a7f56, #047857);   /* blanco sobre verde: >= 4.5:1 */
   border-radius: 12px;
   box-shadow: 0 1px 2px rgba(4,120,87,.35), inset 0 1px 0 rgba(255,255,255,.16);
   transition: transform .12s ease, box-shadow .15s ease;
 }
 :is(#wiz-screen, #med-screen, #cart-panel) button.bg-emerald-600:hover:not(:disabled) {
-  background-image: linear-gradient(180deg, #0e9061, #065f46);
+  background-image: linear-gradient(180deg, #08704c, #065f46);
   box-shadow: 0 4px 12px -2px rgba(4,120,87,.40), inset 0 1px 0 rgba(255,255,255,.16);
   transform: translateY(-1px);
 }
@@ -348,6 +348,28 @@ aside > .rounded-2xl.bg-white {
 .sk-ends { display: flex; justify-content: space-between; }
 .sk-ends > i { width: 56px; height: 10px; border-radius: 6px; }
 
+/* Panel de inicio: esqueleto de la tabla de requerimientos y entrada de filas */
+.home-sk-row {
+  display: grid; align-items: center; gap: 1rem;
+  grid-template-columns: minmax(0,1fr) 150px 90px 130px;
+  padding: 1.05rem 1.5rem; border-bottom: 1px solid #f1f5f9;
+}
+.home-sk-row:last-child { border-bottom: 0; }
+.home-sk-row > i {
+  display: block; height: 12px; border-radius: 6px;
+  background: #eaeef4 linear-gradient(90deg, #eaeef4 0, #f6f8fb 40%, #eaeef4 80%) no-repeat;
+  background-size: 240px 100%;
+  animation: shimmer 1.35s linear infinite;
+}
+.home-sk-row > i:nth-child(1) { width: 62%; height: 13px; }
+.home-sk-row > i:nth-child(2) { width: 70%; }
+.home-sk-row > i:nth-child(3) { width: 28px; }
+.home-sk-row > i:nth-child(4) { width: 80px; }
+.home-row-in { animation: msg-in .3s ease both; animation-delay: calc(var(--i, 0) * 45ms); }
+.home-sec-in { animation: msg-in .45s ease both; }
+.home-sec-in:nth-of-type(2) { animation-delay: .08s; }
+.home-sec-in:nth-of-type(3) { animation-delay: .16s; }
+
 /* Capa "Analizando" sobre la tarjeta */
 .analyzing-overlay {
   position: absolute; inset: 0; z-index: 5;
@@ -381,7 +403,8 @@ aside > .rounded-2xl.bg-white {
 
 @media (prefers-reduced-motion: reduce) {
   .load-dot, .load-skel > i, .load-skel-block > i, .sk-ends > i,
-  .analyzing-orb > span, .analyzing-bar > i { animation: none; }
+  .analyzing-orb > span, .analyzing-bar > i,
+  .home-sk-row > i, .home-row-in, .home-sec-in { animation: none; }
 }
 
 /* ── Lista de transacciones: filas de alto parejo ────── */
@@ -391,3 +414,36 @@ aside > .rounded-2xl.bg-white {
   min-height: 2.7em;
 }
 [data-transacciones-list] { overflow-x: hidden; }
+
+/* ── Selector de cantidad del panel "Mi cotización" ─────────────────── */
+.qty-stepper {
+  display: inline-flex; align-items: center; overflow: hidden;
+  border: 1px solid #cbd5e1; border-radius: 8px; background: #fff;
+  transition: border-color .15s ease, box-shadow .15s ease;
+}
+.qty-stepper:focus-within { border-color: #1e6cc5; box-shadow: 0 0 0 3px rgba(30,108,197,.14); }
+.qty-stepper button {
+  width: 32px; height: 32px; display: flex; align-items: center; justify-content: center;
+  font-size: 16px; line-height: 1; color: #334155; background: #fff; transition: background .15s ease;
+}
+.qty-stepper button:hover { background: #eef4fc; }
+#cart-panel .qty-stepper input[type="number"] {
+  width: 64px; height: 32px; padding: 0; border: 0; border-radius: 0; box-shadow: none;
+  border-left: 1px solid #e2e8f0; border-right: 1px solid #e2e8f0;
+  text-align: center; font-size: 14px; font-weight: 600; -moz-appearance: textfield; appearance: textfield;
+}
+#cart-panel .qty-stepper input::-webkit-outer-spin-button,
+#cart-panel .qty-stepper input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+
+/* ── Legibilidad: tonos de texto con contraste suficiente (WCAG AA, 4.5:1) ──
+   Los grises muy claros de Tailwind (slate-400) y el verde 600 no alcanzan
+   sobre blanco ni sobre el fondo azulado de la página. `body` sube la
+   especificidad para ganarle al CSS que inyecta el CDN de Tailwind. */
+body .text-slate-400, body .text-gray-400 { color: #5f6f86; }
+body .text-slate-500 { color: #56667d; }
+body .text-emerald-600 { color: #047857; }
+body input[placeholder]::placeholder, body textarea[placeholder]::placeholder { color: #64748b; opacity: 1; }
+body .placeholder\:text-slate-400::placeholder { color: #64748b; }
+
+/* Valores de atributos no numéricos siempre en mayúsculas (opciones/sugerencias de los pasos). */
+[data-chips] button, [data-multi-chips] button, [data-chips] [data-chip] { text-transform: uppercase; }

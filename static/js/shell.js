@@ -5,6 +5,12 @@
    ═══════════════════════════════════════════════════════════════ */
 
 // ── Utils ─────────────────────────────────────────────────────────
+// Texto de un atributo no numérico tal como se muestra en toda la app y en el
+// PDF: espacios limpios y en MAYÚSCULAS (los valores guardados no cambian).
+function upperText(v) {
+  return String(v).replace(/\s+/g, ' ').trim().toLocaleUpperCase('es');
+}
+
 function escapeHtml(str) {
   return String(str)
     .replace(/&/g, '&amp;')
@@ -274,3 +280,93 @@ function downloadBlob(blob, filename) {
   setTimeout(() => URL.revokeObjectURL(url), 2000);
 }
 
+
+
+// ── Pantalla de ingreso del requerimiento (Computadores y Medicamentos) ──
+// Pasos del proceso arriba, tarjeta con dos caminos (describir con palabras /
+// elegir paso a paso), guía de qué incluir al costado y acciones abajo.
+// `o`: prefix ('wiz'|'med': prefijo de los ids que usa analizar()), title,
+// mode ('texto'|'manual'), bannersHtml, helper, placeholder, guide [{title,
+// text}] y manual { title, hint, options:[{value, desc}] | null, buttonLabel }.
+function inputScreenHtml(o) {
+  const p = o.prefix;
+  const manual = o.mode === 'manual' && o.manual;
+  const steps = ['Describir', 'Revisar la ficha', 'Agregar a la cotización'];
+  const stepper = steps.map((t, i) => `
+    <div class="flex items-center gap-2.5">
+      <span class="w-6 h-6 rounded-full text-[12px] font-semibold flex items-center justify-center ${i === 0 ? 'bg-brand-700 text-white' : 'border border-slate-300 text-slate-500'}">${i + 1}</span>
+      <span class="text-[13px] ${i === 0 ? 'font-semibold text-brand-800' : 'text-slate-500'}">${t}</span>
+    </div>`).join('<span class="hidden sm:block w-8 h-px bg-slate-300"></span>');
+
+  const tab = (key, label, first) => {
+    const active = (key === 'manual') === !!manual;
+    return `<button type="button" role="tab" aria-selected="${active}" data-input-tab="${key}"
+      class="px-6 py-3.5 text-left text-[14px] border-b-2 transition-colors ${first ? '' : 'border-l border-l-slate-200 '}${active ? 'font-semibold text-brand-800 border-b-brand-700 bg-white' : 'font-medium text-slate-600 border-b-transparent bg-slate-50/60 hover:bg-slate-50'}">${label}</button>`;
+  };
+
+  let body;
+  if (manual) {
+    const m = o.manual;
+    body = `
+      <div class="p-6 pt-5">
+        <p class="text-[13.5px] font-semibold text-slate-700">${escapeHtml(m.title)}</p>
+        <p class="text-[13px] text-slate-500 mt-0.5">${escapeHtml(m.hint)}</p>
+        ${m.options ? `
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-4">
+          ${m.options.map(op => `
+            <button type="button" data-manual-pick="${escapeHtml(op.value)}"
+                    class="flex flex-col items-start justify-start text-left border border-slate-200 rounded-xl px-4 py-4 bg-white hover:border-brand-400 hover:bg-brand-50/40 hover:shadow-sm transition-all">
+              <span class="block text-[15px] font-semibold text-slate-900">${escapeHtml(op.value)}</span>
+              <span class="block text-[12.5px] text-slate-500 leading-snug mt-1.5">${escapeHtml(op.desc)}</span>
+            </button>`).join('')}
+        </div>` : `
+        <button type="button" data-skip-to-manual class="mt-4 px-6 py-2.5 bg-brand-600 hover:bg-brand-700 text-white text-[14px] font-semibold rounded-lg transition-colors">${escapeHtml(m.buttonLabel)}</button>`}
+      </div>`;
+  } else {
+    body = `
+      <div>
+        <div class="p-6 pt-5 min-w-0">
+          ${o.bannersHtml || ''}
+          <p class="text-[13.5px] font-semibold text-slate-700">Tu requerimiento</p>
+          <p class="text-[13px] text-slate-500 mt-0.5 mb-3">${escapeHtml(o.helper)}</p>
+          <textarea id="${p}-texto-input" rows="4" placeholder="${escapeHtml(o.placeholder)}"
+                    class="w-full resize-none bg-white border border-slate-300 rounded-lg px-3.5 py-2.5 text-[14.5px] text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500 transition-all text-left"></textarea>
+          <div class="flex items-start justify-between gap-3 mt-2">
+            <p id="${p}-analizar-hint" class="flex-1 min-w-0 text-[12px] text-slate-400 text-left min-h-[16px]">Ctrl + Enter para analizar</p>
+            <span id="${p}-texto-count" class="flex-shrink-0 text-[12px] text-slate-400 tabular-nums" aria-live="polite">0 / 1.000</span>
+          </div>
+          <div class="flex items-center justify-between gap-3 mt-4">
+            <button type="button" data-fill-example class="text-[13px] font-medium text-brand-600 hover:text-brand-800 hover:underline whitespace-nowrap">Usar un ejemplo</button>
+            <button id="${p}-analizar-btn" type="button"
+                    class="flex items-center justify-center gap-1.5 px-7 py-2.5 bg-brand-600 hover:bg-brand-700 text-white text-[14px] font-semibold rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
+              <span id="${p}-analizar-icon" class="hidden"></span>
+              Analizar
+            </button>
+          </div>
+        </div>
+        <div class="bg-slate-50 border-t border-slate-100 px-6 py-4">
+          <p class="text-[12.5px] font-semibold text-slate-700 mb-2.5">Qué conviene incluir <span class="font-normal text-slate-400">· lo que no indiques, te lo preguntamos</span></p>
+          <div class="grid grid-cols-2 gap-x-6 gap-y-2.5">
+            ${(o.guide || []).map(g => `
+              <div>
+                <p class="text-[13px] font-semibold text-brand-800">${escapeHtml(g.title)}</p>
+                <p class="text-[12px] text-slate-500 leading-snug">${escapeHtml(g.text)}</p>
+              </div>`).join('')}
+          </div>
+        </div>
+      </div>`;
+  }
+
+  return `
+    <div class="flex flex-wrap items-center gap-x-3 gap-y-2 mb-5">${stepper}</div>
+    <div class="relative bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden" style="padding:0">
+      <div class="px-6 pt-6 pb-4">
+        <h1 class="text-[24px] font-semibold text-brand-800 tracking-tight">${o.title}</h1>
+      </div>
+      <div role="tablist" class="grid grid-cols-2 border-t border-b border-slate-200">
+        ${tab('texto', 'Describir con mis palabras', true)}
+        ${tab('manual', 'Elegir paso a paso', false)}
+      </div>
+      ${body}
+    </div>`;
+}

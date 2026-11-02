@@ -5,7 +5,19 @@
    Depende de shell.js (apiFetch, escapeHtml, safeUrl, _headers, readSSEStream).
    ═══════════════════════════════════════════════════════════════ */
 
-const SESSION_ID = (crypto.randomUUID ? crypto.randomUUID() : `med-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+// let, no const -- resumeSession() lo reasigna al retomar un formulario guardado
+// (historial), para que todas las llamadas al backend usen el session_id guardado.
+let SESSION_ID = (crypto.randomUUID ? crypto.randomUUID() : `med-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+
+// Qué formulario estaba activo en esta pestaña (mismo criterio y misma llave
+// que Computadores: home.js la usa para abrir un formulario desde el inicio).
+const CURRENT_SESSION_KEY = 'cat_medicamentos_current_session_v1';
+function rememberCurrentSession(id) {
+  try { sessionStorage.setItem(CURRENT_SESSION_KEY, id); } catch (e) {}
+}
+function getRememberedSession() {
+  try { return sessionStorage.getItem(CURRENT_SESSION_KEY); } catch (e) { return null; }
+}
 
 // unidad_venta es un paso core (obligatorio, sin "omitir"): el precio de un
 // medicamento no es comparable entre unidades (ej. Metformina: mediana $74
@@ -14,6 +26,11 @@ const SESSION_ID = (crypto.randomUUID ? crypto.randomUUID() : `med-${Date.now()}
 const CORE_STEPS = ["principio_activo", "forma_farmaceutica", "concentracion", "unidad_venta"];
 const NO_SKIP_STEPS = new Set(["principio_activo", "unidad_venta"]);
 const OPTIONAL_ATTRS = ["laboratorio", "cantidad"];
+// Mismo arreglo que category_wizard.js (ver _wizardCallSeq ahí): descarta
+// eventos SSE de una llamada analizar()/manualUpdate() que ya no es la más
+// reciente, para que una respuesta lenta no pise el estado de una más
+// nueva que ya llegó y se renderizó.
+let _medCallSeq = 0;
 // cantidad_requerida no es un paso ni aparece en "detalles opcionales" --
 // se pide directo en el paso de unidad_venta (cuántas de esa unidad), y
 // solo se usa para el total estimado (precio unitario × cantidad). Va en
@@ -83,18 +100,20 @@ const priceMiniEl      = document.getElementById('med-price-mini');
 const backBtn          = document.getElementById('med-back-btn');
 const screenEl         = document.getElementById('med-screen');
 
-/* ── Carrito de requerimientos (sessionStorage) ─────────────────── */
-const CART_KEY = 'med_requerimientos_v1';
+/* ── Carrito de requerimientos (por formulario, guardado en el servidor) ──
+   Igual que Computadores: cada formulario guardado tiene su propio carrito
+   (category_sessions.cart), así retomarlo desde el historial trae de vuelta
+   sus compras. */
 let cart = [];
 
-function loadCart() {
-  try {
-    const raw = sessionStorage.getItem(CART_KEY);
-    cart = raw ? JSON.parse(raw) : [];
-  } catch (e) { cart = []; }
-}
 function saveCart() {
-  try { sessionStorage.setItem(CART_KEY, JSON.stringify(cart)); } catch (e) {}
+  apiFetch(`/api/categories/medicamentos/sessions/${SESSION_ID}/cart`, {
+    method: 'POST',
+    headers: _headers(),
+    body: JSON.stringify({ cart }),
+  })
+    .then(() => historyUI.renderSidebar())   // refleja el nuevo conteo de compras
+    .catch(() => {});
 }
 
 function formatCLP(n) {
@@ -103,8 +122,8 @@ function formatCLP(n) {
     : null;
 }
 function formatAttrValue(value) {
-  if (Array.isArray(value)) return value.map(escapeHtml).join(' + ');
-  return escapeHtml(value);
+  if (Array.isArray(value)) return value.map(v => escapeHtml(upperText(v))).join(' + ');
+  return escapeHtml(upperText(value));
 }
 function badgeFor(source) {
   const cfg = {
@@ -125,6 +144,8 @@ function analizar() {
   const texto = input.value.trim();
   if (!texto) return;
   currentTextoOriginal = texto;
+  textoDraft = '';
+  rememberCurrentSession(SESSION_ID);
 
   btn.disabled = true;
   icon.classList.add('animate-spin');
@@ -137,19 +158,27 @@ function analizar() {
   ]);
   clarifyNotice = null;
 
+  const mySeq = ++_medCallSeq;
+
   apiFetch(`/api/medicamentos/analizar/${SESSION_ID}`, {
     method: 'POST',
     headers: _headers(),
     body: JSON.stringify({ texto }),
   })
-    .then(res => res ? readSSEStream(res, handleMedEvent) : null)
+    .then(res => res ? readSSEStream(res, (data) => {
+      if (mySeq !== _medCallSeq) return; // ver _medCallSeq -- respuesta obsoleta, se ignora
+      handleMedEvent(data);
+    }) : null)
     .then(() => {
+      if (mySeq !== _medCallSeq) return;
       analyzingNow = false;
       showingTextScreen = false;
       renderScreen();
+      historyUI.renderSidebar();
     })
     .catch(err => console.error('Error en analizar:', err))
     .finally(() => {
+      if (mySeq !== _medCallSeq) return;
       btn.disabled = false;
       icon.classList.remove('animate-spin');
       analyzingNow = false;
@@ -158,12 +187,17 @@ function analizar() {
 }
 
 function manualUpdate(attr, value) {
+  rememberCurrentSession(SESSION_ID);
+  const mySeq = ++_medCallSeq;
   apiFetch(`/api/medicamentos/manual_update/${SESSION_ID}`, {
     method: 'POST',
     headers: _headers(),
     body: JSON.stringify({ attribute: attr, value }),
   })
-    .then(res => res ? readSSEStream(res, handleMedEvent) : null)
+    .then(res => res ? readSSEStream(res, (data) => {
+      if (mySeq !== _medCallSeq) return;
+      handleMedEvent(data);
+    }) : null)
     .catch(err => console.error('Error en manual_update:', err));
 }
 
@@ -269,6 +303,11 @@ function advanceStep() {
 
 // Solo retrocede UN paso a la vez (sin saltar directo a uno lejano).
 function goBack() {
+  if (editingOptionalAttr) {
+    editingOptionalAttr = null;
+    renderScreen();
+    return;
+  }
   if (companionsPending) {
     companionsPending = false;
     renderScreen();
@@ -302,8 +341,9 @@ function pickValue(attr, value) {
   } else if (CORE_STEPS.includes(attr)) {
     onAttrConfirmed(attr);
   } else {
-    // atributo opcional del paso 4: se completa sin avanzar -- se pueden
-    // seguir llenando los demás campos del mismo paso antes de continuar.
+    // atributo opcional del paso 4: vuelve a la lista de detalles -- se
+    // pueden seguir completando los demás antes de continuar.
+    editingOptionalAttr = null;
     renderScreen();
   }
 }
@@ -353,9 +393,16 @@ function setPrincipioActivoList(arr) {
 }
 
 function editOptionalAttr(attr) {
-  ficha[attr] = null;
+  editingOptionalAttr = attr;
   renderScreen();
   refreshFacetsFor([attr]);
+}
+
+function clearOptionalAttr(attr) {
+  ficha[attr] = null;
+  manualUpdate(attr, null);
+  editingOptionalAttr = null;
+  renderScreen();
 }
 
 /* ── Barra de progreso + precio mini ────────────────────────────── */
@@ -398,6 +445,12 @@ function renderPriceMini() {
 
 /* ── Render de la pantalla activa ────────────────────────────────── */
 
+let addedNotice = null;      // { sid, updated, itemId } -- pantalla de siguientes pasos tras agregar una compra
+let editingItemId = null;    // compra del carrito en edición (sigue en el carrito hasta guardar)
+let inputMode = 'texto';     // pestaña de la pantalla de ingreso: 'texto' | 'manual'
+let textoDraft = '';         // lo escrito, para no perderlo al cambiar de pestaña
+let editingOptionalAttr = null; // detalle opcional en edición de a uno, o null (ver optionalAttrEditScreenHtml)
+
 function renderScreen() {
   if (analyzingNow) return;
   updateProgressBar();
@@ -406,13 +459,13 @@ function renderScreen() {
 
   let html;
   if (showingTextScreen) {
-    html = textoScreenHtml();
+    html = (addedNotice && addedNotice.sid === SESSION_ID && cart.length) ? addedScreenHtml() : textoScreenHtml();
   } else if (companionsPending) {
     html = companionScreenHtml();
   } else if (currentStepIndex < CORE_STEPS.length) {
     html = stepScreenHtml(CORE_STEPS[currentStepIndex], currentStepIndex);
   } else if (currentStepIndex === OPTIONAL_STEP_INDEX) {
-    html = detallesScreenHtml();
+    html = editingOptionalAttr ? optionalAttrEditScreenHtml(editingOptionalAttr) : detallesScreenHtml();
   } else {
     html = resumenScreenHtml();
   }
@@ -424,7 +477,11 @@ function renderScreen() {
   screenEl.classList.remove('med-screen-enter');
 
   bindScreenEvents();
-  if (showingTextScreen) bindTextoLibre(document.getElementById('med-texto-input'), document.getElementById('med-texto-count'));
+  if (showingTextScreen) {
+    const ti = document.getElementById('med-texto-input');
+    if (ti && textoDraft) ti.value = textoDraft;
+    bindTextoLibre(ti, document.getElementById('med-texto-count'));
+  }
 
   if (!showingTextScreen && !companionsPending && currentStepIndex < CORE_STEPS.length) {
     const attr = CORE_STEPS[currentStepIndex];
@@ -436,25 +493,108 @@ function renderScreen() {
   }
 }
 
-function textoScreenHtml() {
+function addedScreenHtml() {
+  const last = cart.find(i => i.id === addedNotice.itemId) || cart[cart.length - 1];
+  const n = cart.length;
   return `
-    <div class="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
-      <h1 class="text-[22px] font-semibold text-slate-900 tracking-tight mb-1.5">¿Qué medicamento necesitas?</h1>
-      <p class="text-[14px] text-slate-500 leading-relaxed mb-6">Nombre comercial o genérico, principio activo, o una descripción con varias especificaciones.</p>
-      <textarea id="med-texto-input" rows="3" placeholder="Escribe acá..."
-                class="w-full resize-none bg-slate-50 border border-slate-200 rounded-lg px-3.5 py-2.5 text-[14px] text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500 focus:bg-white transition-all text-left"></textarea>
-      <div class="flex items-start justify-between gap-3 mt-2">
-        <p id="med-analizar-hint" class="flex-1 min-w-0 text-[11.5px] text-slate-400 text-left min-h-[16px]"></p>
-        <span id="med-texto-count" class="flex-shrink-0 text-[11.5px] text-slate-400 tabular-nums" aria-live="polite">0 / 1.000</span>
+    <div class="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm wiz-pop">
+      <div class="flex items-center gap-3">
+        <span class="w-7 h-7 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center flex-shrink-0">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M5 12.5l4.5 4.5L19 7.5"/></svg>
+        </span>
+        <h1 class="text-[18px] font-semibold text-slate-900 tracking-tight">${addedNotice.updated ? 'Compra actualizada' : 'Compra agregada a tu requerimiento'}</h1>
       </div>
-      <button id="med-analizar-btn" type="button"
-              class="w-full mt-3 flex items-center justify-center gap-1.5 px-4 py-3 bg-brand-600 hover:bg-brand-700 text-white text-[14px] font-semibold rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
-        <span id="med-analizar-icon" class="hidden"></span>
-        Analizar
-      </button>
-      <div class="flex items-center gap-3 mt-4 mb-1"><div class="flex-1 h-px bg-slate-200"></div><span class="text-[10.5px] uppercase tracking-[0.14em] text-slate-400">o</span><div class="flex-1 h-px bg-slate-200"></div></div>
-      <button type="button" data-skip-to-manual class="w-full mt-2 py-2.5 text-[13px] font-medium text-brand-700 hover:bg-brand-50 border border-transparent hover:border-brand-100 rounded-lg transition-colors">Elegir el principio activo directamente →</button>
+      <p class="text-[13px] text-slate-500 mt-1.5 ml-10">${escapeHtml(itemTitleMed(last))} · ${n} compra${n === 1 ? '' : 's'} en total</p>
+
+      <div class="mt-5 space-y-3">
+        <!-- 1. Agregar otro producto -->
+        <div class="flex items-center justify-between gap-4 border border-slate-200 rounded-xl px-5 py-4">
+          <div class="min-w-0">
+            <p class="text-[14px] font-semibold text-slate-800">Agregar otro producto</p>
+            <p class="text-[12.5px] text-slate-500 mt-1 leading-relaxed">Suma otra compra a este mismo requerimiento -- por ejemplo otro medicamento o una presentación distinta.</p>
+          </div>
+          <button type="button" data-added-more aria-label="Agregar otro producto"
+                  class="flex-shrink-0 w-11 h-11 flex items-center justify-center bg-brand-600 hover:bg-brand-700 text-white rounded-full transition-colors shadow-sm">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/></svg>
+          </button>
+        </div>
+
+        <!-- 2. PDF -- documento para subir a ChileCompra -->
+        <div class="flex items-center justify-between gap-4 border border-slate-200 rounded-xl px-5 py-4">
+          <div class="min-w-0 flex items-center gap-3">
+            <span class="w-9 h-9 rounded-lg bg-red-50 text-red-600 flex items-center justify-center flex-shrink-0">
+              <svg class="w-[18px] h-[18px]" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+            </span>
+            <div class="min-w-0">
+              <p class="text-[14px] font-semibold text-slate-800">Subir a ChileCompra</p>
+              <p class="text-[12.5px] text-slate-500 mt-1 leading-relaxed">Descarga el documento técnico en PDF, listo para publicar como requerimiento -- sin precios ni información interna.</p>
+            </div>
+          </div>
+          <button type="button" data-pdf-action class="flex-shrink-0 inline-flex items-center gap-1.5 px-4 py-2.5 bg-red-600 hover:bg-red-700 text-white text-[12.5px] font-semibold rounded-lg transition-colors whitespace-nowrap disabled:opacity-50 disabled:cursor-not-allowed">
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H8a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+            Descargar PDF
+          </button>
+        </div>
+
+        <!-- 3. Resumen ejecutivo -- destacado con cinta -->
+        <div class="relative overflow-hidden flex items-center justify-between gap-4 border-2 border-brand-300 bg-gradient-to-br from-brand-50 to-white rounded-xl pl-5 pr-5 py-4">
+          <span class="absolute top-0 right-0 text-[9px] font-bold tracking-wide text-white bg-brand-600 px-3 py-1 rounded-bl-lg">RECOMENDADO</span>
+          <div class="min-w-0">
+            <p class="text-[14px] font-semibold text-brand-900">Revisar precios y mercado</p>
+            <p class="text-[12.5px] text-brand-700/90 mt-1 leading-relaxed">Totales estimados, evolución de precios y laboratorios de todo el requerimiento -- antes de publicar, conviene mirarlo.</p>
+          </div>
+          <button type="button" data-resumen-action class="flex-shrink-0 px-4 py-2.5 bg-brand-600 hover:bg-brand-700 text-white text-[12.5px] font-semibold rounded-lg transition-colors whitespace-nowrap shadow-sm">Ver resumen ejecutivo</button>
+        </div>
+      </div>
+
+      <button type="button" data-nuevo-requerimiento-completo class="mt-4 text-[11.5px] font-medium text-slate-400 hover:text-slate-700 underline">¿Requerimiento distinto?</button>
     </div>`;
+}
+
+// Abandonar el requerimiento actual (queda guardado en el historial) y abrir
+// uno nuevo en blanco -- con aviso, igual que en Computadores.
+function confirmarNuevoRequerimiento() {
+  if (cart.length) {
+    const n = cart.length;
+    const ok = confirm(
+      `Vas a salir de este requerimiento (tiene ${n} compra${n === 1 ? '' : 's'}) y abrir uno nuevo en blanco. ` +
+      `Este queda guardado y lo puedes retomar luego desde "Formularios guardados". ¿Continuar?`
+    );
+    if (!ok) return;
+  }
+  nuevoFormulario();
+}
+
+function textoScreenHtml() {
+  // Con compras ya en el carrito, esta pantalla siempre suma al MISMO requerimiento.
+  const continuingBanner = cart.length > 0 ? `
+    <div class="mb-4 px-4 py-3 bg-emerald-50 border border-emerald-200 rounded-xl text-left flex items-start justify-between gap-3">
+      <div class="min-w-0">
+        <p class="text-[12.5px] font-semibold text-emerald-800">Agregando la compra ${cart.length + 1} a este requerimiento</p>
+        <p class="text-[11.5px] text-emerald-700 mt-0.5 leading-snug">Ya tienes ${cart.length} compra${cart.length === 1 ? '' : 's'} en tu cotización -- lo que describas acá se suma al mismo requerimiento.</p>
+      </div>
+      <button type="button" data-nuevo-requerimiento-completo class="flex-shrink-0 text-[11px] font-medium text-emerald-700 hover:text-emerald-900 underline whitespace-nowrap">¿Requerimiento distinto?</button>
+    </div>` : '';
+  return inputScreenHtml({
+    prefix: 'med',
+    bannersHtml: continuingBanner,
+    title: '¿Qué medicamento necesitas?',
+    mode: inputMode,
+    helper: 'Nombre comercial o genérico, principio activo, o una descripción con varias especificaciones.',
+    placeholder: 'Ej.: paracetamol 500 mg comprimidos…',
+    guide: [
+      { title: 'Principio activo', text: 'Nombre genérico o comercial' },
+      { title: 'Concentración', text: 'Por ejemplo, 500 mg' },
+      { title: 'Forma farmacéutica', text: 'Comprimido, jarabe, inyectable…' },
+      { title: 'Unidad de compra', text: 'Envase o presentación' },
+    ],
+    manual: {
+      title: 'Elegir el principio activo',
+      hint: 'Buscas el principio activo y después te preguntamos concentración, forma y unidad de compra.',
+      options: null,
+      buttonLabel: 'Elegir el principio activo',
+    },
+  });
 }
 
 function stepScreenHtml(attr, index) {
@@ -491,6 +631,17 @@ function stepScreenHtml(attr, index) {
     </div>` : '';
   const cachedChips = facetsCache[attr];
 
+  // Al volver a un paso ya completado, mostrar lo elegido y permitir
+  // conservarlo (antes quedaba la lista en blanco, sin rastro de lo anterior).
+  const currentBox = (current?.value != null && current.value !== '') ? `
+      <div class="flex items-center gap-3 mb-3.5 px-3.5 py-2.5 bg-brand-50 border border-brand-100 rounded-xl">
+        <div class="min-w-0 flex-1">
+          <p class="text-[10.5px] font-semibold text-brand-700 uppercase tracking-wide">Elegido antes</p>
+          <p class="text-[14px] font-semibold text-slate-900 truncate">${formatAttrValue(current.value)}</p>
+        </div>
+        <button type="button" data-confirm="${attr}" class="flex-shrink-0 px-3.5 py-2 bg-brand-600 hover:bg-brand-700 text-white text-[12.5px] font-semibold rounded-lg transition-colors">Mantener y continuar</button>
+      </div>` : '';
+
   return `
     <div class="bg-white border border-slate-200 rounded-2xl p-7 shadow-sm">
       <div class="flex items-center gap-2.5">
@@ -500,6 +651,7 @@ function stepScreenHtml(attr, index) {
         ${!NO_SKIP_STEPS.has(attr) ? `<button type="button" data-skip="${attr}" class="text-[11px] font-medium text-slate-400 hover:text-brand-700 border-l border-slate-200 pl-2.5">omitir</button>` : ''}
       </div>
       <p class="step-title">${pickerCaption(attr)}</p>
+      ${currentBox}
       ${notice}
       <div class="flex flex-wrap gap-2 mb-3 min-h-[30px]" data-chips="${attr}">
         ${cachedChips ? chipsOrPriceListHtml(attr, cachedChips) : chipsLoadingHtml(attr)}
@@ -573,46 +725,91 @@ function companionChipsHtml(values) {
     </button>`).join('');
 }
 
+const hasAttrValue = (attr) => ficha[attr]?.value != null && ficha[attr].value !== '';
+
+function attrTableRowHtml(attr) {
+  const current = ficha[attr];
+  const hasValue = hasAttrValue(attr);
+  return `
+    <div class="flex items-center gap-3 px-3.5 py-2.5 ${hasValue ? '' : 'bg-amber-50/40'}">
+      <p class="text-[11px] text-slate-500 min-w-[128px] flex-shrink-0">${ATTR_LABELS[attr]}</p>
+      ${hasValue ? `
+        <p class="text-[12.5px] font-medium text-slate-700 flex-1 truncate">${formatAttrValue(current.value)} ${badgeFor(current.source)}</p>
+        <button type="button" data-edit-optional="${attr}" class="text-[11px] text-brand-600 hover:text-brand-700 flex-shrink-0">cambiar</button>
+      ` : `
+        <p class="text-[12px] text-slate-400 italic flex-1">sin especificar</p>
+        <button type="button" data-edit-optional="${attr}" class="text-[11px] font-medium text-amber-600 hover:text-amber-700 flex-shrink-0">+ definir</button>
+      `}
+    </div>`;
+}
+
 function detallesScreenHtml() {
+  const unsetAttrs = OPTIONAL_ATTRS.filter(a => !hasAttrValue(a));
+  const unsetNotice = unsetAttrs.length ? `
+    <div class="flex items-start gap-2 bg-amber-50 border border-amber-200 rounded-xl p-3 mb-3">
+      <svg class="w-4 h-4 text-amber-500 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z"/></svg>
+      <p class="text-[12px] text-amber-800 leading-snug">Lo que quede sin especificar (resaltado abajo) podría llegarte con distintos valores en la oferta -- distintos laboratorios o tamaños de envase.</p>
+    </div>` : '';
   return `
     <div class="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
       <p class="text-[11px] font-semibold text-brand-600 uppercase tracking-wide mb-1">Detalles opcionales</p>
-      <p class="text-[13px] text-slate-400 mb-3">Puedes omitir cualquiera de estos y continuar.</p>
-      <div class="space-y-3">${OPTIONAL_ATTRS.map(optionalAttrHtml).join('')}</div>
+      <p class="text-[13px] text-slate-500 mb-3">Puedes omitir cualquiera de estos y continuar.</p>
+      ${unsetNotice}
+      <div class="border border-slate-200 rounded-xl divide-y divide-slate-100 overflow-hidden">
+        ${OPTIONAL_ATTRS.map(attrTableRowHtml).join('')}
+      </div>
       <button type="button" data-finish-optional class="w-full mt-4 py-2.5 bg-brand-600 hover:bg-brand-700 text-white text-[13.5px] font-semibold rounded-lg transition-colors">Continuar</button>
     </div>`;
 }
 
-function optionalAttrHtml(attr) {
-  const current = ficha[attr];
-  const hasValue = current && current.value != null && current.value !== '';
-  if (hasValue) {
-    return `
-      <div class="bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 flex items-center gap-3">
-        <p class="text-[11px] text-slate-400 min-w-[90px] flex-shrink-0">${ATTR_LABELS[attr]}</p>
-        <p class="text-[13px] font-medium text-slate-700 flex-1">${formatAttrValue(current.value)} ${badgeFor(current.source)}</p>
-        <button type="button" data-step-edit-optional="${attr}" class="text-[11px] text-brand-600 hover:text-brand-700 flex-shrink-0">cambiar</button>
-      </div>`;
-  }
+// Editor de un solo detalle opcional, pantalla completa (como en Computadores).
+function optionalAttrEditScreenHtml(attr) {
   const cachedChips = facetsCache[attr];
   return `
-    <div class="bg-white border border-slate-200 rounded-lg px-3 py-2.5">
-      <p class="text-[11px] text-slate-400 mb-1.5">${ATTR_LABELS[attr]}</p>
-      <div class="flex flex-wrap gap-1.5 mb-1.5 min-h-[26px]" data-chips="${attr}">${cachedChips ? chipsHtml(cachedChips) : chipsLoadingHtml(attr)}</div>
+    <div class="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
+      <div class="flex items-center gap-2 mb-4">
+        <button type="button" data-back-optional aria-label="Volver"
+                class="w-7 h-7 flex items-center justify-center rounded-lg text-slate-400 hover:text-brand-600 hover:bg-slate-50 transition-colors flex-shrink-0">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7"/></svg>
+        </button>
+        <p class="text-[13px] font-semibold text-slate-700 flex-1">${ATTR_LABELS[attr]}</p>
+        ${hasAttrValue(attr) ? `<button type="button" data-clear-optional="${attr}" class="text-[11px] text-slate-400 hover:text-red-500 flex-shrink-0">quitar valor</button>` : ''}
+      </div>
+      <div class="flex flex-wrap gap-1.5 mb-2 min-h-[26px]" data-chips="${attr}">${cachedChips ? chipsHtml(cachedChips) : chipsLoadingHtml(attr)}</div>
       <input type="${NUMERIC_ATTRS.has(attr) ? 'number' : 'text'}" data-input="${attr}" autocomplete="off"
              placeholder="Escribe y presiona Enter..."
-             class="w-full text-[12.5px] bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-brand-500 ${cachedChips ? '' : 'hidden'}" />
+             class="w-full text-[13px] bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:bg-white ${cachedChips ? '' : 'hidden'}" />
+      ${hasAttrValue(attr) ? `<p class="text-[11.5px] text-slate-500 mt-3">Actual: <b class="text-slate-700">${formatAttrValue(ficha[attr].value)}</b></p>` : ''}
     </div>`;
 }
 
+// La unidad de compra define cómo se compara el precio: se destaca aparte
+// del resto de los datos, junto con la cantidad a comprar.
+function unidadCompraBoxHtml() {
+  const u = ficha.unidad_venta?.value;
+  if (u == null || u === '') return '';
+  const cant = ficha.cantidad_requerida?.value;
+  return `
+      <div class="flex items-center gap-3 mb-4 px-4 py-3 bg-brand-50 border border-brand-200 rounded-xl">
+        <div class="min-w-0 flex-1">
+          <p class="text-[10.5px] font-semibold text-brand-700 uppercase tracking-wide">Unidad de compra</p>
+          <p class="text-[17px] font-bold text-brand-900 leading-tight">${formatAttrValue(u)}</p>
+        </div>
+        ${cant ? `<div class="text-right flex-shrink-0">
+          <p class="text-[10.5px] font-semibold text-brand-700 uppercase tracking-wide">Cantidad a comprar</p>
+          <p class="text-[17px] font-bold text-brand-900 leading-tight">${escapeHtml(Number(cant).toLocaleString('es-CL'))}</p>
+        </div>` : ''}
+      </div>`;
+}
+
 function resumenScreenHtml() {
-  const coreChips = CORE_STEPS.map(attr => {
+  const coreChips = CORE_STEPS.filter(a => a !== 'unidad_venta').map(attr => {
     const v = ficha[attr]?.value;
     return (v != null && v !== '')
       ? `<span class="inline-flex items-center gap-1 text-[12px] font-medium bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-full px-2.5 py-1">${formatAttrValue(v)}</span>`
       : '';
   }).filter(Boolean).join(' ');
-  const optionalChips = [...OPTIONAL_ATTRS, ...EXTRA_DISPLAY_ATTRS].map(attr => {
+  const optionalChips = OPTIONAL_ATTRS.map(attr => {
     const v = ficha[attr]?.value;
     if (v == null || v === '') return '';
     return `<span class="inline-flex items-center gap-1 text-[11px] font-medium bg-slate-50 text-slate-600 border border-slate-200 rounded-full px-2.5 py-1">${ATTR_LABELS[attr]}: ${formatAttrValue(v)}</span>`;
@@ -620,17 +817,18 @@ function resumenScreenHtml() {
 
   return `
     <div class="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
-      <p class="text-[11px] font-semibold text-emerald-600 uppercase tracking-wide mb-3">✓ Requerimiento listo</p>
+      <p class="text-[11px] font-semibold text-emerald-600 uppercase tracking-wide mb-3">${editingItemId ? `Editando la compra ${cart.findIndex(i => i.id === editingItemId) + 1}` : '✓ Requerimiento listo'}</p>
       <div class="flex flex-wrap gap-1.5 mb-2">${coreChips}</div>
-      ${optionalChips ? `<div class="flex flex-wrap gap-1.5 mb-4">${optionalChips}</div>` : ''}
+      ${optionalChips ? `<div class="flex flex-wrap gap-1.5 mb-3">${optionalChips}</div>` : '<div class="mb-1"></div>'}
+      ${unidadCompraBoxHtml()}
 
       <div id="med-price-panel-full" class="mb-4"></div>
 
       <button type="button" data-agregar class="w-full flex items-center justify-center gap-2 py-3 bg-emerald-600 hover:bg-emerald-700 text-white text-[13.5px] font-semibold rounded-xl transition-colors mb-2">
         <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/></svg>
-        Agregar a la cotización
+        ${editingItemId ? 'Guardar cambios' : 'Agregar a la cotización'}
       </button>
-      <button type="button" data-nuevo-requerimiento class="w-full text-[12px] text-slate-400 hover:text-brand-600 py-1 transition-colors">Empezar otro requerimiento sin guardar este</button>
+      <button type="button" data-nuevo-requerimiento class="w-full text-[12px] text-slate-400 hover:text-brand-600 py-1 transition-colors">${editingItemId ? 'Cancelar edición' : 'Empezar otro requerimiento sin guardar este'}</button>
 
       <div id="med-historial-wrap" class="mt-4 pt-4 border-t border-slate-100">
         <button id="med-historial-toggle" type="button" class="w-full flex items-center justify-between text-[12px] font-medium text-slate-500 hover:text-brand-600 transition-colors">
@@ -753,6 +951,8 @@ function chipsOrPriceListHtml(attr, values) {
 /* ── Eventos de la pantalla activa ───────────────────────────────── */
 
 function bindScreenEvents() {
+  const addedMore = screenEl.querySelector('[data-added-more]');
+  if (addedMore) addedMore.addEventListener('click', () => { addedNotice = null; renderScreen(); });
   const analizarBtn = document.getElementById('med-analizar-btn');
   if (analizarBtn) analizarBtn.addEventListener('click', analizar);
   const textoInput = document.getElementById('med-texto-input');
@@ -762,12 +962,36 @@ function bindScreenEvents() {
     });
     textoInput.focus();
   }
+  screenEl.querySelectorAll('[data-input-tab]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const ti = document.getElementById('med-texto-input');
+      if (ti) textoDraft = ti.value;
+      inputMode = btn.dataset.inputTab;
+      renderScreen();
+    });
+  });
+  const fillExample = screenEl.querySelector('[data-fill-example]');
+  if (fillExample) fillExample.addEventListener('click', () => {
+    const ti = document.getElementById('med-texto-input');
+    if (!ti) return;
+    ti.value = 'Paracetamol 500 mg comprimidos';
+    ti.dispatchEvent(new Event('input'));
+    ti.focus();
+  });
   const skipToManual = screenEl.querySelector('[data-skip-to-manual]');
   if (skipToManual) skipToManual.addEventListener('click', () => { showingTextScreen = false; renderScreen(); });
 
-  screenEl.querySelectorAll('[data-step-edit-optional]').forEach(btn => {
-    btn.addEventListener('click', () => editOptionalAttr(btn.dataset.stepEditOptional));
+  screenEl.querySelectorAll('[data-edit-optional]').forEach(btn => {
+    btn.addEventListener('click', () => editOptionalAttr(btn.dataset.editOptional));
   });
+  screenEl.querySelectorAll('[data-back-optional]').forEach(btn => {
+    btn.addEventListener('click', () => { editingOptionalAttr = null; renderScreen(); });
+  });
+  screenEl.querySelectorAll('[data-clear-optional]').forEach(btn => {
+    btn.addEventListener('click', () => clearOptionalAttr(btn.dataset.clearOptional));
+  });
+  const nuevoReqCompleto = screenEl.querySelector('[data-nuevo-requerimiento-completo]');
+  if (nuevoReqCompleto) nuevoReqCompleto.addEventListener('click', confirmarNuevoRequerimiento);
   screenEl.querySelectorAll('[data-finish-optional]').forEach(btn => {
     btn.addEventListener('click', () => advanceStep());
   });
@@ -1107,7 +1331,9 @@ function renderCartBar() {
   cartCountEl.textContent = String(n);
   cartPluralEl.textContent = n === 1 ? '' : 's';
   cartBar.classList.toggle('hidden', n === 0);
-  cartPanelCount.textContent = String(n);
+  cartPanelCount.textContent = cartSummaryText();
+  const docActions = document.getElementById('doc-actions');
+  if (docActions) docActions.classList.toggle('hidden', n === 0);
   renderDocPreview();
 }
 
@@ -1137,9 +1363,16 @@ function renderDocPreview() {
 
   const fecha = new Date().toLocaleDateString('es-CL', { year: 'numeric', month: 'long', day: 'numeric' });
   const referencia = 'REQ-' + (String(SESSION_ID).replace(/-/g, '').slice(0, 6).toUpperCase() || '000000');
-  const nItems = cart.length + (hasDraft ? 1 : 0);
-  const sections = cart.map((item, i) => reqBlockHtml(item, i + 1)).join('');
-  const draftHtml = hasDraft ? `
+  const editIdx = cart.findIndex(i => i.id === editingItemId);
+  const replacing = hasDraft && editIdx >= 0;
+  const draftBlock = (tag, idx) => `
+    <div class="req-draft">
+      <p class="req-draft-tag">${tag}</p>
+      ${reqBlockHtml({ nombre: null, atributos: draftAttrs, descripcion: null }, idx)}
+    </div>`;
+  const nItems = cart.length + (hasDraft && !replacing ? 1 : 0);
+  const sections = cart.map((item, i) => (replacing && i === editIdx) ? draftBlock('En edición', i + 1) : reqBlockHtml(item, i + 1)).join('');
+  const draftHtml = (hasDraft && !replacing) ? `
     <div class="req-draft">
       <p class="req-draft-tag">En construcción</p>
       ${reqBlockHtml({ nombre: null, atributos: draftAttrs, descripcion: null }, cart.length + 1)}
@@ -1162,6 +1395,10 @@ function renderDocPreview() {
 }
 
 function resetWizardState() {
+  editingItemId = null;
+  editingOptionalAttr = null;
+  inputMode = 'texto';
+  textoDraft = '';
   ficha = {};
   facetsCache = {};
   priceData = null;
@@ -1209,16 +1446,18 @@ function agregarRequerimiento() {
     if (ficha[a]?.value != null && ficha[a]?.value !== '') atributos[a] = ficha[a].value;
   });
   const texto_original = currentTextoOriginal;
+  const prev = editingItemId ? cart.find(i => i.id === editingItemId) : null;
   const item = {
-    id: `req-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    id: prev ? prev.id : `req-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
     texto_original,
     atributos,
     price: priceData,
     cantidad: Number(atributos.cantidad_requerida) > 0 ? Number(atributos.cantidad_requerida) : 1,
   };
-  cart.push(item);
+  if (prev) cart[cart.indexOf(prev)] = item; else cart.push(item);
   saveCart();
   renderCartBar();
+  addedNotice = { sid: SESSION_ID, updated: !!prev, itemId: item.id };
   empezarNuevoRequerimiento();
 
   describeItem(item).then(res => {
@@ -1258,7 +1497,7 @@ function itemTitleMed(item) {
 
 // Varios principios activos son un producto combinado ("+"), no alternativas.
 function attrTextMed(k, v) {
-  return Array.isArray(v) ? v.join(k === 'principio_activo' ? ' + ' : ' o ') : String(v);
+  return Array.isArray(v) ? v.map(upperText).join(k === 'principio_activo' ? ' + ' : ' o ') : upperText(v);
 }
 
 function joinEsMed(list) {
@@ -1289,48 +1528,74 @@ function reqBlockHtml(item, index) {
     </div>`;
 }
 
-function cartItemCardHtml(item) {
-  const cantidadReq = item.atributos?.cantidad_requerida;
-  let price;
-  if (item.price && cantidadReq) {
-    price = `
-      <p class="text-[13px] font-semibold text-emerald-700 mt-1.5">${formatCLP(item.price.mediana)} <span class="text-[10.5px] font-normal text-slate-400">unitario</span></p>
-      <p class="text-[13px] font-semibold text-emerald-800">${formatCLP(item.price.mediana * cantidadReq)} <span class="text-[10.5px] font-normal text-slate-400">total estimado (${escapeHtml(cantidadReq)})</span></p>`;
-  } else if (item.price) {
-    price = `<p class="text-[13px] font-semibold text-emerald-700 mt-1.5">${formatCLP(item.price.mediana)} <span class="text-[10.5px] font-normal text-slate-400">mediana estimada</span></p>`;
-  } else {
-    price = `<p class="text-[11px] text-slate-400 mt-1.5">Sin estimación de precio disponible</p>`;
-  }
+// "2 compras · 5 unidades" bajo el título del panel.
+function cartSummaryText() {
+  const n = cart.length;
+  const u = cart.reduce((t, i) => t + (Number(i.cantidad) > 0 ? Number(i.cantidad) : 1), 0);
+  return `${n} compra${n === 1 ? '' : 's'} · ${u.toLocaleString('es-CL')} unidad${u === 1 ? '' : 'es'}`;
+}
+
+function cartItemCardHtml(item, i) {
+  const a = item.atributos || {};
+  const qty = Number(item.cantidad) > 0 ? Number(item.cantidad) : (Number(a.cantidad_requerida) > 0 ? Number(a.cantidad_requerida) : 1);
+  const specs = ATTR_ORDER
+    .filter(k => k !== 'cantidad_requerida' && a[k] != null && a[k] !== '' && !(Array.isArray(a[k]) && !a[k].length))
+    .map(k => attrTextMed(k, a[k]))
+    .join(' · ');
   return `
-    <div class="border border-slate-200 rounded-xl px-3.5 py-3">
-      <div class="flex items-start justify-between gap-2">
-        <p class="text-[12.5px] font-semibold text-slate-800 leading-snug flex-1 min-w-0">${escapeHtml(item.texto_original || 'Requerimiento')}</p>
-        <div class="flex items-center gap-2.5 flex-shrink-0">
-          <button data-cart-edit="${item.id}" aria-label="Editar" class="text-slate-300 hover:text-brand-600 transition-colors">
-            <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
-          </button>
-          <button data-cart-remove="${item.id}" aria-label="Eliminar" class="text-slate-300 hover:text-red-500 transition-colors">
-            <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
-          </button>
+    <div class="flex gap-4 py-4 border-b border-slate-100 last:border-b-0">
+      <span class="w-5 flex-shrink-0 pt-0.5 text-[13px] font-semibold text-brand-600">${String(i + 1).padStart(2, '0')}</span>
+      <div class="flex-1 min-w-0">
+        <p class="text-[14.5px] font-semibold text-slate-900 leading-snug">${escapeHtml(itemTitleMed(item))}</p>
+        <p class="text-[12.5px] text-slate-500 mt-1 leading-relaxed line-clamp-2">${escapeHtml(item.nombre ? specs : (item.texto_original || specs))}</p>
+        <div class="flex items-center justify-between gap-3 mt-3">
+          <div class="qty-stepper">
+            <button type="button" data-cart-step="-1" data-cart-id="${item.id}" aria-label="Disminuir cantidad">&minus;</button>
+            <input id="qty-${item.id}" type="number" min="1" step="1" inputmode="numeric" data-cart-qty="${item.id}" value="${qty}" aria-label="Cantidad" />
+            <button type="button" data-cart-step="1" data-cart-id="${item.id}" aria-label="Aumentar cantidad">+</button>
+          </div>
+          <div class="flex items-center gap-4">
+            <button type="button" data-cart-edit="${item.id}" class="text-[12.5px] text-slate-500 hover:text-brand-700 transition-colors">Editar</button>
+            <button type="button" data-cart-remove="${item.id}" class="text-[12.5px] text-slate-500 hover:text-red-600 transition-colors">Quitar</button>
+          </div>
         </div>
       </div>
-      <p class="text-[11px] text-slate-500 mt-1 leading-relaxed">${cartItemAttrsHtml(item.atributos)}</p>
-      ${price}
     </div>`;
 }
 
 function renderCartPanel() {
   if (!cart.length) {
-    cartItemsEl.innerHTML = `<div class="text-center py-16 text-slate-400"><p class="text-[13px]">Aún no has agregado requerimientos a tu cotización.</p></div>`;
+    cartItemsEl.innerHTML = `<div class="text-center py-16 text-slate-400"><p class="text-[13px]">Aún no has agregado compras a tu cotización.</p></div>`;
     return;
   }
-  cartItemsEl.innerHTML = cart.map(cartItemCardHtml).join('');
+  cartItemsEl.innerHTML = cart.map((item, i) => cartItemCardHtml(item, i)).join('');
   cartItemsEl.querySelectorAll('[data-cart-remove]').forEach(btn => {
     btn.addEventListener('click', () => {
       cart = cart.filter(i => i.id !== btn.dataset.cartRemove);
       saveCart();
       renderCartBar();
       renderCartPanel();
+    });
+  });
+  cartItemsEl.querySelectorAll('[data-cart-step]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const inp = document.getElementById('qty-' + btn.dataset.cartId);
+      if (!inp) return;
+      inp.value = Math.max(1, (parseInt(inp.value, 10) || 1) + Number(btn.dataset.cartStep));
+      inp.dispatchEvent(new Event('change'));
+    });
+  });
+  cartItemsEl.querySelectorAll('[data-cart-qty]').forEach(inp => {
+    inp.addEventListener('change', () => {
+      const n = Math.max(1, parseInt(inp.value, 10) || 1);
+      inp.value = n;
+      const it = cart.find(i => i.id === inp.dataset.cartQty);
+      if (!it) return;
+      it.cantidad = n;
+      if (it.atributos) it.atributos.cantidad_requerida = n;
+      saveCart();
+      renderDocPreview();
+      cartPanelCount.textContent = cartSummaryText();
     });
   });
   cartItemsEl.querySelectorAll('[data-cart-edit]').forEach(btn => {
@@ -1340,14 +1605,12 @@ function renderCartPanel() {
 
 // Reabre un requerimiento ya guardado en el carrito, directo en la pantalla
 // de resumen con todos sus atributos precargados (como si se acabara de
-// terminar el wizard) -- se saca del carrito y se vuelve a agregar recién
-// cuando el usuario confirma de nuevo, para no duplicarlo mientras edita.
+// terminar el wizard). La compra sigue en el carrito mientras se edita:
+// "Guardar cambios" la reemplaza en su lugar y, si la persona abandona,
+// queda intacta.
 function editCartItem(id) {
   const item = cart.find(i => i.id === id);
   if (!item) return;
-  cart = cart.filter(i => i.id !== id);
-  saveCart();
-  renderCartBar();
   closeCartPanel();
 
   resetWizardState();
@@ -1360,6 +1623,8 @@ function editCartItem(id) {
   priceData = item.price || null;
   currentTextoOriginal = item.texto_original || '';
 
+  editingItemId = id;
+  addedNotice = null;
   showingTextScreen = false;
   currentStepIndex = TOTAL_STEPS;
   renderScreen();
@@ -1372,6 +1637,9 @@ document.getElementById('cart-bar-btn').addEventListener('click', openCartPanel)
 document.getElementById('cart-close').addEventListener('click', closeCartPanel);
 document.getElementById('cart-backdrop').addEventListener('click', closeCartPanel);
 document.getElementById('cart-empty-btn').addEventListener('click', () => {
+  if (!cart.length) return;
+  const n = cart.length;
+  if (!confirm(`Esto elimina las ${n} compra${n === 1 ? '' : 's'} agregadas a este requerimiento. ¿Seguro que quieres vaciar la cotización?`)) return;
   cart = [];
   saveCart();
   renderCartBar();
@@ -1386,6 +1654,7 @@ document.getElementById('cart-empty-btn').addEventListener('click', () => {
 function downloadRequerimientosPDF() {
   if (!cart.length) return;
   cartPdfBtn.disabled = true;
+  document.querySelectorAll('[data-pdf-action]').forEach(b => { b.disabled = true; });
   cartPdfIcon.classList.add('animate-spin');
 
   // Nombre y descripción los genera el modelo; normalmente ya vienen del
@@ -1442,6 +1711,7 @@ function downloadRequerimientosPDF() {
     })
     .finally(() => {
       cartPdfBtn.disabled = false;
+      document.querySelectorAll('[data-pdf-action]').forEach(b => { b.disabled = false; });
       cartPdfIcon.classList.remove('animate-spin');
     });
 }
@@ -1478,11 +1748,105 @@ function loadSchema() {
     .catch(() => {});
 }
 
-document.addEventListener('DOMContentLoaded', () => {
-  loadCart();
+/* ── Historial de formularios (compartido con Computadores, ver history_ui.js) ── */
+
+const historyUI = createHistoryUI({
+  slug: 'medicamentos',
+  getSessionId: () => SESSION_ID,
+  onResume: (sid) => resumeSession(sid),
+  onDeletedActive: () => nuevoFormulario(),
+});
+
+function loadingScreenHtml(text) {
+  return `
+    <div class="bg-white border border-slate-200 rounded-2xl p-8 shadow-sm flex items-center justify-center gap-3">
+      <svg class="w-5 h-5 text-brand-500 animate-spin flex-shrink-0" fill="none" viewBox="0 0 24 24">
+        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="3"></circle>
+        <path class="opacity-90" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+      </svg>
+      <span class="text-[13.5px] text-slate-500">${escapeHtml(text)}</span>
+    </div>`;
+}
+
+// opts.onFail: lo usa el auto-retomado al cargar la página -- si el
+// session_id guardado en este navegador ya no existe, cae a un formulario
+// nuevo en blanco en vez de dejar la pantalla de "Retomando..." colgada.
+function resumeSession(sessionId, opts = {}) {
+  return apiFetch(`/api/categories/medicamentos/sessions/${sessionId}/resume`, { method: 'POST', headers: _headers() })
+    .then(r => r && r.ok ? r.json() : null)
+    .then(data => {
+      if (!data) { opts.onFail?.(); return; }
+      SESSION_ID = sessionId;
+      rememberCurrentSession(sessionId);
+      resetWizardState();
+      Object.entries(data.ficha || {}).forEach(([attr, value]) => {
+        if (value == null || value === '') return;
+        ficha[attr] = { attribute: attr, value, source: 'user', normalized: true, score: 1 };
+      });
+      currentTextoOriginal = data.texto_original || '';
+      cart = data.cart || [];
+      addedNotice = null;
+      CORE_STEPS.forEach(attr => { if (ficha[attr]?.value != null) confirmedAttrs.add(attr); });
+
+      if (Object.keys(ficha).length) {
+        // Salta al primer paso core que falte; si ya están todos, al resumen.
+        const firstUnfilled = CORE_STEPS.findIndex(attr => ficha[attr]?.value == null);
+        showingTextScreen = false;
+        currentStepIndex = firstUnfilled === -1 ? TOTAL_STEPS : firstUnfilled;
+        // El precio no se guarda: se recalcula re-aplicando el último atributo
+        // (idempotente) y, si ya hay principio activo, el "desde $X".
+        if (ficha.unidad_venta?.value != null) manualUpdate('unidad_venta', ficha.unidad_venta.value);
+        else if (ficha.principio_activo?.value != null) loadPriceHint();
+      }
+      renderCartBar();
+      renderScreen();
+      historyUI.renderSidebar();
+    })
+    .catch(() => opts.onFail?.());
+}
+
+// "+ Nuevo formulario": no borra el anterior (ya quedó guardado solo),
+// simplemente arranca uno en blanco con un SESSION_ID nuevo y su propio carrito.
+function nuevoFormulario() {
+  SESSION_ID = (crypto.randomUUID ? crypto.randomUUID() : `med-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+  rememberCurrentSession(SESSION_ID);
+  cart = [];
+  resetWizardState();
+  addedNotice = null;
   renderCartBar();
-  loadSchema();
   renderScreen();
+  historyUI.renderSidebar();
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  loadSchema();
+
+  const nuevoBtn = document.querySelector('[data-nuevo-formulario]');
+  if (nuevoBtn) nuevoBtn.addEventListener('click', nuevoFormulario);
+  historyUI.renderSidebar();
 
   cartPdfBtn.addEventListener('click', downloadRequerimientosPDF);
+
+  // Acciones del documento (cabecera de la vista previa y pantalla "Compra agregada").
+  document.addEventListener('click', (e) => {
+    if (e.target.closest('[data-resumen-action]')) { openResumen(); return; }
+    if (e.target.closest('[data-pdf-action]')) downloadRequerimientosPDF();
+  });
+
+  // Retomar automáticamente el formulario en el que se estaba trabajando en
+  // esta pestaña (o el que se abrió desde el historial del inicio).
+  const rememberedId = getRememberedSession();
+  if (rememberedId) {
+    screenEl.innerHTML = loadingScreenHtml('Retomando tu formulario...');
+    resumeSession(rememberedId, {
+      onFail: () => {
+        try { sessionStorage.removeItem(CURRENT_SESSION_KEY); } catch (e) {}
+        renderCartBar();
+        renderScreen();
+      },
+    });
+  } else {
+    renderCartBar();
+    renderScreen();
+  }
 });

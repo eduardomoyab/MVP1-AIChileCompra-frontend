@@ -22,6 +22,17 @@ app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=0, x_port=0, x_
 
 API_URL          = os.getenv("API_URL", "http://127.0.0.1:8000")
 FRONTEND_API_KEY = os.getenv("FRONTEND_API_KEY", "")
+
+# Cliente HTTP persistente hacia el backend -- un httpx.Client reusado, no uno
+# nuevo por request. Antes cada llamada a /api/* pagaba un handshake TCP (y
+# TLS si API_URL es https) desde cero; con el pool de conexiones mantenido
+# acá, las llamadas siguientes al mismo backend reusan la conexión ya
+# abierta. Cada worker de gunicorn (proceso separado) tiene su propia
+# instancia -- no hace falta lock, un worker sync procesa un request a la vez.
+_backend_client = httpx.Client(
+    timeout=120,
+    limits=httpx.Limits(max_keepalive_connections=20, max_connections=20),
+)
 HOST             = os.getenv("FLASK_HOST", "0.0.0.0")
 PORT             = int(os.getenv("FLASK_PORT", "5000"))
 DEBUG            = os.getenv("FLASK_DEBUG", "true").lower() == "true"
@@ -122,6 +133,10 @@ _SECTIONS = {
 }
 
 
+# Secciones que persisten formularios en el backend (/api/categories/{slug}/sessions).
+_HISTORY_SLUGS = {"computadores", "medicamentos"}
+
+
 def _allowed_sections():
     """Slugs de _SECTIONS que la sesión actual puede ver. session["sections"]
     viene de auth.py: None = la app no tiene secciones configuradas en
@@ -143,7 +158,12 @@ def index():
     if len(allowed) == 1:
         return redirect(url_for(_SECTIONS[allowed[0]]["route"]))
     sections = [{"slug": s, **_SECTIONS[s]} for s in allowed]
-    return render_template("categorias.html", sections=sections, **_account_context())
+    # Categorías que guardan formularios (alimentan el historial del inicio).
+    hist_cats = [
+        {"slug": s["slug"], "label": s["label"], "href": url_for(s["route"])}
+        for s in sections if s["slug"] in _HISTORY_SLUGS
+    ]
+    return render_template("categorias.html", sections=sections, hist_cats=hist_cats, **_account_context())
 
 
 @app.route("/computadores")
@@ -230,9 +250,8 @@ def proxy(path):
     # backend haya respondido 403/404/lo que sea (bug real: rompía en
     # silencio cualquier `resp.ok` del frontend contra un endpoint que no
     # fuera puro SSE).
-    client = httpx.Client(timeout=120)
-    upstream = client.send(
-        client.build_request(request.method, url, content=data, headers=headers),
+    upstream = _backend_client.send(
+        _backend_client.build_request(request.method, url, content=data, headers=headers),
         stream=True,
     )
 
@@ -242,7 +261,6 @@ def proxy(path):
                 yield chunk
         finally:
             upstream.close()
-            client.close()
 
     return Response(
         stream_with_context(generate()),

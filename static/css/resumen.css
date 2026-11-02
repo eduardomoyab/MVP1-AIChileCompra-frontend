@@ -94,11 +94,22 @@
 .rs-dplot.tall .zero { top: -7px; bottom: -7px; }
 .rs-dplot .band { position: absolute; top: -7px; bottom: -7px; background: #dfeaf8; }
 .rs-dplot .bar { position: absolute; top: 3px; height: 20px; border-radius: 3px; }
+.rs-dplot .gl { position: absolute; top: -3px; bottom: -3px; width: 1px; margin-left: -.5px; background: #b9c9df; }
+.rs-dplot.tall .gl { top: -7px; bottom: -7px; }
+/* Barra cortada: el valor real supera la escala; la marca blanca inclinada lo indica */
+.rs-dplot .bar.cut-r::after, .rs-dplot .bar.cut-l::after { content: ''; position: absolute; top: -2px; bottom: -2px; width: 5px; background: #fff; transform: skewX(-22deg); }
+.rs-dplot .bar.cut-r::after { right: 9px; }
+.rs-dplot .bar.cut-l::after { left: 9px; }
 .rs-dplot.tall .bar { top: 6px; height: 22px; }
 .rs-dplot .none { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 12px; color: #64748b; }
 .rs-dplot .none span { background: #fff; padding: 0 8px; }
 .rs-axis { display: flex; justify-content: space-between; font-size: 12px; color: #475569; }
 .rs-axis b { color: #0a2d5e; font-weight: 600; }
+.rs-axis5 { position: relative; height: 18px; font-size: 12px; color: #475569; }
+.rs-axis5 > span, .rs-axis5 > b { position: absolute; top: 0; white-space: nowrap; transform: translateX(-50%); }
+.rs-axis5 > b { color: #0a2d5e; font-weight: 600; }
+.rs-axis5 > .l { left: 0; transform: none; }
+.rs-axis5 > .r { left: auto; right: 0; transform: none; }
 .rs-axisrow { display: grid; gap: 14px; }
 
 /* Tabla */
@@ -197,8 +208,11 @@
   padding: 9px 12px; border-radius: 8px; white-space: nowrap; opacity: 0; pointer-events: none; transition: opacity .12s ease;
   box-shadow: 0 8px 24px -8px rgba(6,30,66,.5);
 }
-.rs-tip b { font-weight: 600; color: #fff; }
-.rs-tip em { color: #adc9ef; font-style: normal; font-size: 11.5px; }
+/* Los tooltips van sobre fondo azul oscuro: el texto debe ganarle a cualquier
+   regla de color de su contenedor (.rs-bin b, .rs-hist b, etc.). */
+.rs-tip.rs-tip, .rs-tip.rs-tip b, .rs-tip.rs-tip span { color: #fff; }
+.rs-tip.rs-tip b { font-weight: 600; }
+.rs-tip.rs-tip em { color: #cfe0f6; font-style: normal; font-size: 11.5px; }
 .rs-dot:hover .rs-tip, .rs-dot:focus-visible .rs-tip, .rs-bin:hover .rs-tip, .rs-bin:focus-visible .rs-tip { opacity: 1; }
 .rs-xl { position: relative; height: 18px; font-size: 12px; color: #475569; }
 .rs-xl span { position: absolute; transform: translateX(-50%); white-space: nowrap; }

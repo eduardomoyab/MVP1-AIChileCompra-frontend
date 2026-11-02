@@ -63,7 +63,13 @@ let currentStepIndex = 0;
 const confirmedAttrs = new Set();
 const forceChooseAttrs = new Set();
 const multiDraft = {};          // {attr: Set} -- selección en progreso de un paso enum_multi
-const rangeModeDraft = new Set(); // attrs mostrando el control de rango en vez del slider único (ver numericOptionalControlHtml)
+// attr -> true/false: fuerza el modo rango/valor-único en numericControlHtml
+// por encima de lo que diga ficha[attr] (ver toggle "usar rango"/"usar valor
+// único"). Sin override, el modo natural se deduce del valor: objeto
+// {min,max} => rango, número => único. Antes esto era un Set (rangeModeDraft)
+// que solo marcaba "forzar rango" pero nunca se leía al calcular isRange --
+// el botón "+ usar un rango" no hacía nada visible (reporte real).
+const rangeModeOverride = new Map();
 let clarifyNotice = null;       // {message, question} -- la IA no pudo resolver el primer paso core
 // Tras agregar una compra: pantalla de siguientes pasos en vez del formulario vacío.
 let addedNotice = null;     // { sid, updated, itemId } -- solo vale para el formulario (SESSION_ID) donde se agregó
@@ -539,6 +545,16 @@ function resumeSession(sessionId, opts = {}) {
       renderCartBar();
       renderScreen();
       renderHistorySidebar();
+      // El borrador que se retoma a veces está vacío de verdad (la última
+      // acción antes de guardar fue agregar una compra al carrito, lo que
+      // limpia el borrador para la siguiente). Sin esto, la persona cae en
+      // el paso 1 en blanco sin ninguna pista de que ya tiene una compra
+      // completa un clic más allá -- parece que "pide rellenar todo de
+      // nuevo" cuando en realidad ya está guardado. Abrir el carrito de
+      // entrada deja ver de inmediato lo que ya tiene, con su botón
+      // "Editar" (editCartItem) para corregir cualquier atributo, principal
+      // u opcional, desde el resumen precargado.
+      if (firstUnfilled === 0 && cart.length > 0) openCartPanel();
     })
     .catch(() => opts.onFail?.());
 }
@@ -1120,7 +1136,14 @@ function pickerCaption(step, meta) {
 function controlHtml(step, attr, meta) {
   switch (meta.type) {
     case 'numeric_range':
-      return sliderHtml(step, attr, meta);
+      // No usar sliderHtml directo acá: si la IA (o una edición previa)
+      // dejó un rango (ej. {min: 8}, "8 GB o más"), el slider de valor
+      // único no sabe representarlo y lo reemplazaba en silencio por el
+      // punto medio de la escala al volver a este paso (reporte real:
+      // "retrocedí y ahora me sale 16 GB en lugar de 8 GB o más"). Este
+      // control detecta el rango y muestra el selector Desde/Hasta, con el
+      // mismo toggle que ya existía para atributos opcionales.
+      return numericControlHtml(step, attr, meta);
     case 'enum_multi':
       return multiChipsControlHtml(step, attr, meta);
     case 'boolean':
@@ -1329,7 +1352,7 @@ const HIDDEN_PICKER_VALUES = { tipo_equipo: new Set(['Otro']) };
 // así que pasar el propio attr como "step" es seguro).
 function optionalAttrEditControlHtml(attr, meta) {
   if (meta.type === 'boolean') return booleanControlHtml(attr, attr);
-  if (meta.type === 'numeric_range') return numericOptionalControlHtml(attr, meta);
+  if (meta.type === 'numeric_range') return numericControlHtml(attr, attr, meta);
   if (meta.type === 'enum_multi') return multiChipsControlHtml(attr, attr, meta);
   if (meta.values) {
     // Fijo (enum chico, ej. tecnología RAM): ya viene completo en el
@@ -1420,15 +1443,20 @@ function refreshMultiDropdownSelected(attr) {
   if (confirmBtn) confirmBtn.disabled = (multiDraft[attr] || new Set()).size === 0;
 }
 
-// ── numeric_range en el editor manual: valor único (slider, como siempre)
-// o un rango -- reporte real: "rangos en numéricos" no estaba disponible
-// acá, aunque el extractor de IA ya puede guardar {min,max} para estos
-// atributos (ver MULTI_VALUE_RULE_TEXT). Un botón alterna entre ambos.
-function numericOptionalControlHtml(attr, meta) {
+// ── numeric_range, tanto en un paso core como en el editor de un detalle
+// opcional: valor único (slider, como siempre) o un rango -- reporte real:
+// "rangos en numéricos" no estaba disponible, aunque el extractor de IA ya
+// puede guardar {min,max} (o solo {min}, "8 GB o más") para estos atributos
+// (ver MULTI_VALUE_RULE_TEXT). Un botón alterna entre ambos modos.
+// `step` solo importa para el botón "Confirmar →" del slider de valor único
+// (ver sliderHtml) -- se puede pasar igual a `attr` cuando no hay un paso
+// lógico real detrás (ver nota en optionalAttrEditControlHtml).
+function numericControlHtml(step, attr, meta) {
   const current = ficha[attr]?.value;
-  const isRange = current && typeof current === 'object' && !Array.isArray(current);
+  const naturalIsRange = current && typeof current === 'object' && !Array.isArray(current);
+  const isRange = rangeModeOverride.has(attr) ? rangeModeOverride.get(attr) : naturalIsRange;
   if (!isRange) {
-    return sliderHtml(attr, attr, meta) + `
+    return sliderHtml(step, attr, meta) + `
       <button type="button" data-use-range="${attr}" class="w-full mt-2 text-[11.5px] text-slate-400 hover:text-brand-600 transition-colors">+ usar un rango en vez de un valor único</button>`;
   }
   const steps = meta.allowed_steps || [];
@@ -1664,18 +1692,18 @@ function bindScreenEvents() {
       const attr = stepPrimaryAttr(step);
       const slider = screenEl.querySelector(`[data-slider="${attr}"]`);
       const steps = JSON.parse(slider.dataset.steps);
+      rangeModeOverride.delete(attr); // confirmó un valor único -- que el próximo render use el modo natural
       pickValue(attr, steps[Number(slider.value)]);
     });
   });
 
-  // numeric_range opcional: alternar valor único / rango (ver
-  // numericOptionalControlHtml) -- re-pintar la pantalla entera es seguro
-  // acá (editor de un solo atributo, sin nada async compitiendo).
+  // numeric_range: alternar valor único / rango (ver numericControlHtml) --
+  // re-pintar la pantalla entera es seguro acá (control de un solo
+  // atributo, sin nada async compitiendo).
   screenEl.querySelectorAll('[data-use-range]').forEach(btn => {
     btn.addEventListener('click', () => {
       const attr = btn.dataset.useRange;
-      if (btn.hasAttribute('data-use-single')) rangeModeDraft.delete(attr);
-      else rangeModeDraft.add(attr);
+      rangeModeOverride.set(attr, !btn.hasAttribute('data-use-single'));
       renderScreen();
     });
   });
@@ -1688,7 +1716,7 @@ function bindScreenEvents() {
       const steps = JSON.parse(minSel.dataset.rangeSteps);
       const a = steps[Number(minSel.value)];
       const b = steps[Number(maxSel.value)];
-      rangeModeDraft.delete(attr);
+      rangeModeOverride.delete(attr);
       pickValue(attr, a <= b ? { min: a, max: b } : { min: b, max: a });
     });
   });

@@ -1554,7 +1554,9 @@ function bindScreenEvents() {
   const textoInput = document.getElementById('wiz-texto-input');
   if (textoInput) {
     textoInput.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) analizar();
+      // Enter sola envía (como cualquier chat); Shift+Enter sigue siendo
+      // salto de línea -- reporte real: "Ctrl + Enter" no era intuitivo.
+      if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); analizar(); }
     });
     textoInput.focus();
   }

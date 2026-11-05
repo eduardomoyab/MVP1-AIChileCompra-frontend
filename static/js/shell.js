@@ -332,7 +332,7 @@ function inputScreenHtml(o) {
           <textarea id="${p}-texto-input" rows="4" placeholder="${escapeHtml(o.placeholder)}"
                     class="w-full resize-none bg-white border border-slate-300 rounded-lg px-3.5 py-2.5 text-[14.5px] text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500 transition-all text-left"></textarea>
           <div class="flex items-start justify-between gap-3 mt-2">
-            <p id="${p}-analizar-hint" class="flex-1 min-w-0 text-[12px] text-slate-400 text-left min-h-[16px]">Ctrl + Enter para analizar</p>
+            <p id="${p}-analizar-hint" class="flex-1 min-w-0 text-[12px] text-slate-400 text-left min-h-[16px]">Enter para analizar · Shift + Enter para salto de línea</p>
             <span id="${p}-texto-count" class="flex-shrink-0 text-[12px] text-slate-400 tabular-nums" aria-live="polite">0 / 1.000</span>
           </div>
           <div class="flex items-center justify-between gap-3 mt-4">

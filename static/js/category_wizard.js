@@ -1087,7 +1087,8 @@ function stepScreenHtml(step) {
         <h2 class="text-[22px] font-semibold text-brand-800 tracking-tight mb-1">${stepLabel(step)}</h2>
         ${meta.help_text ? `<p class="text-[12.5px] text-slate-400 leading-snug mb-4">${escapeHtml(meta.help_text)}</p>` : '<div class="mb-4"></div>'}
         <p class="text-[14px] text-slate-500 mb-1">Vimos que necesitas</p>
-        <p class="text-[26px] font-semibold text-slate-900 tracking-tight mb-6">${escapeHtml(attrValueText(attr, current.value))}</p>
+        <p class="text-[26px] font-semibold text-slate-900 tracking-tight mb-1">${escapeHtml(attrValueText(attr, current.value))}</p>
+        ${current.gama_note ? `<p class="text-[12px] text-brand-600 leading-snug mb-6">${escapeHtml(current.gama_note)}</p>` : '<div class="mb-6"></div>'}
         <div class="flex gap-2">
           <button type="button" data-confirm="${step}" class="flex-1 py-2.5 bg-brand-600 hover:bg-brand-700 text-white text-[13.5px] font-semibold rounded-lg transition-colors">Sí, es correcto</button>
           <button type="button" data-choose="${step}" class="px-4 py-2.5 bg-white border border-slate-200 hover:border-brand-300 text-slate-600 text-[13.5px] font-medium rounded-lg transition-colors">Elegir otro</button>

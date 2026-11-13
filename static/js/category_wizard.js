@@ -1073,6 +1073,20 @@ function textoScreenHtml() {
   });
 }
 
+// Reporte real: "se ve muy verboso" -- el texto explicativo de cada
+// atributo (help_text) dejó de mostrarse siempre y pasó a un ícono "?"
+// que lo revela al tocarlo. <details>/<summary> nativo: no requiere
+// estado propio en JS ni un listener dedicado (se pierde el "abierto" en
+// el próximo render(), igual que cualquier otro control nativo del DOM
+// que no se trackea a propósito -- aceptable para un tooltip).
+function helpIconHtml(helpText) {
+  if (!helpText) return '';
+  return `<details class="help-q inline-block align-middle ml-1">
+    <summary class="inline-flex items-center justify-center w-4 h-4 rounded-full border border-slate-300 text-slate-400 text-[10px] font-semibold leading-none cursor-pointer select-none hover:border-brand-400 hover:text-brand-500">?</summary>
+    <p class="mt-1.5 text-[12px] text-slate-500 leading-snug bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-2 max-w-[320px]">${escapeHtml(helpText)}</p>
+  </details>`;
+}
+
 function stepScreenHtml(step) {
   const attr = stepPrimaryAttr(step);
   const meta = stepMeta(step);
@@ -1084,8 +1098,7 @@ function stepScreenHtml(step) {
     return `
       <div class="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
         <span class="inline-flex items-center text-[10.5px] font-semibold text-brand-700 bg-brand-50 border border-brand-100 rounded-full px-2.5 py-1 mb-3">Sugerido por IA</span>
-        <h2 class="text-[22px] font-semibold text-brand-800 tracking-tight mb-1">${stepLabel(step)}</h2>
-        ${meta.help_text ? `<p class="text-[12.5px] text-slate-400 leading-snug mb-4">${escapeHtml(meta.help_text)}</p>` : '<div class="mb-4"></div>'}
+        <h2 class="text-[22px] font-semibold text-brand-800 tracking-tight mb-4">${stepLabel(step)}${helpIconHtml(meta.help_text)}</h2>
         <p class="text-[14px] text-slate-500 mb-1">Vimos que necesitas</p>
         <p class="text-[26px] font-semibold text-slate-900 tracking-tight mb-1">${escapeHtml(attrValueText(attr, current.value))}</p>
         ${current.gama_note ? `<p class="text-[12px] text-brand-600 leading-snug mb-6">${escapeHtml(current.gama_note)}</p>` : '<div class="mb-6"></div>'}
@@ -1110,9 +1123,9 @@ function stepScreenHtml(step) {
       <div class="flex items-center gap-2.5">
         <span class="step-badge">${CORE_STEPS.indexOf(step) + 1}</span>
         <p class="text-[11px] font-semibold text-brand-600 uppercase tracking-wide">${stepLabel(step)}</p>
+        ${helpIconHtml(meta.help_text)}
         <span class="ml-auto text-[11px] text-slate-400">Paso ${CORE_STEPS.indexOf(step) + 1} de ${CORE_STEPS.length}</span>
       </div>
-      ${meta.help_text ? `<p class="text-[12px] text-slate-400 leading-snug mt-1.5">${escapeHtml(meta.help_text)}</p>` : ''}
       <p class="step-title">${pickerCaption(step, meta)}</p>
       ${notice}
       ${controlHtml(step, attr, meta)}
@@ -1504,10 +1517,9 @@ function optionalAttrEditScreenHtml(attr) {
                 class="w-7 h-7 flex items-center justify-center rounded-lg text-slate-400 hover:text-brand-600 hover:bg-slate-50 transition-colors flex-shrink-0">
           <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7"/></svg>
         </button>
-        <p class="text-[13px] font-semibold text-slate-700 flex-1">${ATTR_LABELS[attr]}</p>
+        <p class="text-[13px] font-semibold text-slate-700 flex-1">${ATTR_LABELS[attr]}${helpIconHtml(meta.help_text)}</p>
         ${hasValue ? `<button type="button" data-clear-optional="${attr}" class="text-[11px] text-slate-400 hover:text-red-500 flex-shrink-0">quitar valor</button>` : ''}
       </div>
-      ${meta.help_text ? `<p class="text-[12px] text-slate-400 leading-snug mb-3.5">${escapeHtml(meta.help_text)}</p>` : ''}
       ${optionalAttrEditControlHtml(attr, meta)}
     </div>`;
 }

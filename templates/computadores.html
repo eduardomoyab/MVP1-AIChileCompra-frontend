@@ -28,6 +28,12 @@
     @keyframes wiz-highlight { 0% { box-shadow: 0 0 0 0 rgba(30,108,197,.45); } 70% { box-shadow: 0 0 0 10px rgba(30,108,197,0); } 100% { box-shadow: 0 0 0 0 rgba(30,108,197,0); } }
     .wiz-highlight { animation: wiz-highlight .8s ease-out 2; }
 
+    /* Ícono "?" de ayuda por atributo (helpIconHtml en category_wizard.js):
+       oculta el triángulo nativo de <summary> en todos los navegadores. */
+    .help-q > summary { list-style: none; }
+    .help-q > summary::-webkit-details-marker { display: none; }
+    .help-q > summary::marker { display: none; }
+
     /* Vista previa del documento (técnico, sin precios): misma estructura que
        el PDF que genera el backend (services/pdf_service.py). */
     .pdf-wrap { font-family: 'Inter', Arial, sans-serif; font-size: 12.5px; color: #1e293b; padding: 26px 28px 22px; background: #fff; }

@@ -2154,6 +2154,13 @@ function cmBlockHtml(cm) {
       </div>`;
   }).join('');
 
+  // Reporte real: "reducir pantalla Convenio Marco (hacerla desplegable)"
+  // -- antes la lista de productos se mostraba siempre completa (paginada,
+  // pero nunca colapsada). Mismo patrón que "Mi cotización"/"Detalles
+  // opcionales": colapsado por defecto a precio + rango, la lista recién
+  // aparece al tocar el botón (cmState.expanded).
+  const toggleLabel = cmState.expanded ? 'Ocultar productos ↑' : `Ver productos (${allProducts.length}) →`;
+
   return `
     <div class="rounded-xl border-2 border-brand-200 bg-brand-50/60 p-4 mb-3">
       <div class="flex items-center justify-between mb-1">
@@ -2161,9 +2168,12 @@ function cmBlockHtml(cm) {
         <span class="text-[10px] font-semibold text-brand-600 bg-white border border-brand-200 rounded-full px-2 py-0.5">Opción recomendada</span>
       </div>
       <p class="text-[24px] font-bold text-brand-800 leading-none mt-1.5 mb-0.5">${formatCLP(conIva(cm.median))}</p>
-      <p class="text-[11.5px] text-brand-600 mb-3">rango ${formatCLP(conIva(cm.min))} – ${formatCLP(conIva(cm.max))} · ${escapeHtml(cm.count)} producto${cm.count === 1 ? '' : 's'} disponible${cm.count === 1 ? '' : 's'} · con IVA (catálogo neto + 19 %)${cmProcessorMatchNoticeHtml(cm)}</p>
-      ${productsHtml ? `<div class="space-y-1.5">${productsHtml}</div>` : ''}
-      ${cmPagerHtml(allProducts)}
+      <p class="text-[11.5px] text-brand-600 ${allProducts.length ? 'mb-3' : ''}">rango ${formatCLP(conIva(cm.min))} – ${formatCLP(conIva(cm.max))} · ${escapeHtml(cm.count)} producto${cm.count === 1 ? '' : 's'} disponible${cm.count === 1 ? '' : 's'} · con IVA (catálogo neto + 19 %)${cmProcessorMatchNoticeHtml(cm)}</p>
+      ${allProducts.length ? `
+      <button type="button" data-cm-toggle-products class="w-full flex items-center justify-center gap-1.5 py-2 bg-white hover:bg-brand-100 border border-brand-200 text-brand-700 text-[12px] font-semibold rounded-lg transition-colors">${toggleLabel}</button>
+      ${cmState.expanded ? `
+      <div class="space-y-1.5 mt-2.5">${productsHtml}</div>
+      ${cmPagerHtml(allProducts)}` : ''}` : ''}
     </div>`;
 }
 
@@ -2226,7 +2236,7 @@ const transaccionesState = {
 // Paginado del catálogo de Convenio Marco (client-side -- category_service.
 // estimate_price ya pide el catálogo completo con top_n=200, así que no
 // hace falta volver a pedirle nada al backend para pasar de página).
-const cmState = { page: 1, pageSize: 5 };
+const cmState = { page: 1, pageSize: 5, expanded: false };
 
 // Tab visible cuando ambos paneles de precio existen (ver renderPricePanel).
 // 'cm' por defecto -- es la "Opción recomendada" ya marcada en cmBlockHtml.
@@ -2528,6 +2538,7 @@ function resetWizardState() {
   transaccionesState.page = 1;
   transaccionesState.total = 0;
   cmState.page = 1;
+  cmState.expanded = false;
   priceTab = 'cm';
   offTopicNotice = null;
 }
@@ -3002,6 +3013,14 @@ function bindGlobalPriceDelegation() {
     const priceTabBtn = e.target.closest('[data-price-tab]');
     if (priceTabBtn) {
       priceTab = priceTabBtn.dataset.priceTab;
+      renderPricePanel();
+      return;
+    }
+
+    const cmToggleProducts = e.target.closest('[data-cm-toggle-products]');
+    if (cmToggleProducts) {
+      cmState.expanded = !cmState.expanded;
+      if (cmState.expanded) cmState.page = 1; // el catálogo puede haber cambiado desde la última vez que se abrió
       renderPricePanel();
       return;
     }

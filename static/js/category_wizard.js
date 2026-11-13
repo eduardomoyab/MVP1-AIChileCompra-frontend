@@ -1993,6 +1993,25 @@ function cmPagerHtml(allProducts) {
     </div>`;
 }
 
+// Reporte real: "podría quedar claro que también lo considera" -- el ficha
+// linea_procesador queda con el piso pedido (ej. i7/Ryzen 7 para gama alta),
+// pero cm_service.py (ver gama_service.expand_to_group_and_above) ya busca
+// ESE nivel Y los superiores. Sin este aviso no había forma de saber, desde
+// el wizard, que un i9/Ryzen 9 en la lista de abajo también cumple lo
+// pedido -- parecía un resultado "de más" en vez de una opción válida.
+function cmProcessorMatchNoticeHtml(cm) {
+  if (cm.processor_match === 'gama' && !cm.processor_relaxed) {
+    return `<p class="text-[10.5px] text-brand-600 mb-2">Incluye también equipos con procesadores de rendimiento igual o superior al pedido.</p>`;
+  }
+  if (cm.processor_match === 'gama' && cm.processor_relaxed) {
+    return `<p class="text-[10.5px] text-brand-600 mb-2">No encontramos match exacto de procesador -- se muestran equipos de rendimiento equivalente o superior, de cualquier marca.</p>`;
+  }
+  if (cm.processor_match === 'none' && cm.processor_relaxed) {
+    return `<p class="text-[10.5px] text-amber-700 mb-2">Sin coincidencia de procesador -- se muestran productos con el resto de las características solicitadas.</p>`;
+  }
+  return '';
+}
+
 function cmBlockHtml(cm) {
   const allProducts = cm.products || [];
   const totalPages = Math.max(1, Math.ceil(allProducts.length / cmState.pageSize));
@@ -2045,6 +2064,7 @@ function cmBlockHtml(cm) {
       </div>
       <p class="text-[24px] font-bold text-brand-800 leading-none mt-1.5 mb-0.5">${formatCLP(conIva(cm.median))}</p>
       <p class="text-[11.5px] text-brand-600 mb-3">rango ${formatCLP(conIva(cm.min))} – ${formatCLP(conIva(cm.max))} · ${escapeHtml(cm.count)} producto${cm.count === 1 ? '' : 's'} disponible${cm.count === 1 ? '' : 's'} · con IVA (catálogo neto + 19 %)</p>
+      ${cmProcessorMatchNoticeHtml(cm)}
       ${productsHtml && revisados.length === 0 ? `
       <p class="flex items-center gap-1.5 text-[10.5px] text-brand-700 bg-white/70 border border-brand-200 rounded-md px-2.5 py-1.5 mb-2">
         <svg class="w-3.5 h-3.5 flex-shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path stroke-linecap="round" d="M12 11v5m0-8h.01"/></svg>

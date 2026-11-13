@@ -174,6 +174,11 @@ function toggleRevisado(source, key, data) {
 function renderRevisadosPanel() {
   const el = document.getElementById('wiz-revisados-panel');
   if (!el) return;
+  // El panel entero estaba vacío (sin pista alguna) hasta la primera
+  // selección -- se usa para destacar el botón "Ver tabla comparativa" justo
+  // cuando aparece por primera vez (ver wiz-highlight), no en cada re-render
+  // posterior (agregar/quitar otro producto no debería volver a animarlo).
+  const justAppeared = el.innerHTML.trim() === '' && revisados.length > 0;
   if (!revisados.length) { el.innerHTML = ''; return; }
   el.innerHTML = `
     <div class="bg-white border border-slate-200 rounded-xl p-3.5 mb-4">
@@ -198,7 +203,7 @@ function renderRevisadosPanel() {
             </button>
           </div>`).join('')}
       </div>
-      <button type="button" data-ver-comparacion class="w-full flex items-center justify-center gap-1.5 py-2 bg-brand-50 hover:bg-brand-100 border border-brand-200 text-brand-700 text-[12.5px] font-semibold rounded-lg transition-colors">
+      <button type="button" data-ver-comparacion class="w-full flex items-center justify-center gap-1.5 py-2 bg-brand-50 hover:bg-brand-100 border border-brand-200 text-brand-700 text-[12.5px] font-semibold rounded-lg transition-colors ${justAppeared ? 'wiz-highlight' : ''}">
         <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 17V7m6 10V11m-9 6h12a2 2 0 002-2V7a2 2 0 00-2-2H6a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
         Ver tabla comparativa
       </button>
@@ -1079,7 +1084,8 @@ function stepScreenHtml(step) {
     return `
       <div class="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
         <span class="inline-flex items-center text-[10.5px] font-semibold text-brand-700 bg-brand-50 border border-brand-100 rounded-full px-2.5 py-1 mb-3">Sugerido por IA</span>
-        <h2 class="text-[22px] font-semibold text-brand-800 tracking-tight mb-4">${stepLabel(step)}</h2>
+        <h2 class="text-[22px] font-semibold text-brand-800 tracking-tight mb-1">${stepLabel(step)}</h2>
+        ${meta.help_text ? `<p class="text-[12.5px] text-slate-400 leading-snug mb-4">${escapeHtml(meta.help_text)}</p>` : '<div class="mb-4"></div>'}
         <p class="text-[14px] text-slate-500 mb-1">Vimos que necesitas</p>
         <p class="text-[26px] font-semibold text-slate-900 tracking-tight mb-6">${escapeHtml(attrValueText(attr, current.value))}</p>
         <div class="flex gap-2">
@@ -1105,6 +1111,7 @@ function stepScreenHtml(step) {
         <p class="text-[11px] font-semibold text-brand-600 uppercase tracking-wide">${stepLabel(step)}</p>
         <span class="ml-auto text-[11px] text-slate-400">Paso ${CORE_STEPS.indexOf(step) + 1} de ${CORE_STEPS.length}</span>
       </div>
+      ${meta.help_text ? `<p class="text-[12px] text-slate-400 leading-snug mt-1.5">${escapeHtml(meta.help_text)}</p>` : ''}
       <p class="step-title">${pickerCaption(step, meta)}</p>
       ${notice}
       ${controlHtml(step, attr, meta)}
@@ -1499,6 +1506,7 @@ function optionalAttrEditScreenHtml(attr) {
         <p class="text-[13px] font-semibold text-slate-700 flex-1">${ATTR_LABELS[attr]}</p>
         ${hasValue ? `<button type="button" data-clear-optional="${attr}" class="text-[11px] text-slate-400 hover:text-red-500 flex-shrink-0">quitar valor</button>` : ''}
       </div>
+      ${meta.help_text ? `<p class="text-[12px] text-slate-400 leading-snug mb-3.5">${escapeHtml(meta.help_text)}</p>` : ''}
       ${optionalAttrEditControlHtml(attr, meta)}
     </div>`;
 }
@@ -2037,6 +2045,11 @@ function cmBlockHtml(cm) {
       </div>
       <p class="text-[24px] font-bold text-brand-800 leading-none mt-1.5 mb-0.5">${formatCLP(conIva(cm.median))}</p>
       <p class="text-[11.5px] text-brand-600 mb-3">rango ${formatCLP(conIva(cm.min))} – ${formatCLP(conIva(cm.max))} · ${escapeHtml(cm.count)} producto${cm.count === 1 ? '' : 's'} disponible${cm.count === 1 ? '' : 's'} · con IVA (catálogo neto + 19 %)</p>
+      ${productsHtml && revisados.length === 0 ? `
+      <p class="flex items-center gap-1.5 text-[10.5px] text-brand-700 bg-white/70 border border-brand-200 rounded-md px-2.5 py-1.5 mb-2">
+        <svg class="w-3.5 h-3.5 flex-shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path stroke-linecap="round" d="M12 11v5m0-8h.01"/></svg>
+        Toca uno o más productos para guardarlos y compararlos en "Mi cotización".
+      </p>` : ''}
       ${productsHtml ? `<div class="space-y-1.5">${productsHtml}</div>` : ''}
       ${cmPagerHtml(allProducts)}
     </div>`;
@@ -2173,13 +2186,29 @@ function transaccionesPagerHtml() {
     </div>`;
 }
 
+// Reporte real: no se notaba que tocar una transacción la guarda para
+// comparar. Se agrega acá (no en caBlockHtml) porque refreshTransaccionesList()
+// reemplaza [data-transacciones-list] completo con lo que devuelva esta
+// función en cada refresh (orden, agrupación, página, selección) -- ponerlo
+// afuera hacía que el aviso desapareciera en el primer cambio de orden aunque
+// nada siguiera seleccionado.
+function transaccionesHintHtml() {
+  if (revisados.length > 0) return '';
+  return `
+    <p class="flex items-center gap-1.5 text-[10.5px] text-slate-500 bg-slate-50 border border-slate-200 rounded-md px-2.5 py-1.5 mb-2">
+      <svg class="w-3.5 h-3.5 flex-shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path stroke-linecap="round" d="M12 11v5m0-8h.01"/></svg>
+      Toca una o más transacciones para guardarlas y compararlas en "Mi cotización".
+    </p>`;
+}
+
 function transaccionesListInnerHtml(offers) {
   if (!offers.length) return `<p class="text-[11px] text-slate-400 py-1">Sin transacciones detalladas disponibles.</p>`;
+  const hint = transaccionesHintHtml();
   const sorted = sortedOffers(offers);
   const controls = transaccionesControlsHtml();
 
   if (transaccionesState.groupBy === 'none') {
-    return controls + sorted.map(offerRowHtml).join('') + transaccionesPagerHtml();
+    return hint + controls + sorted.map(offerRowHtml).join('') + transaccionesPagerHtml();
   }
 
   const groupKeyFn = transaccionesState.groupBy === 'anio'
@@ -2198,7 +2227,7 @@ function transaccionesListInnerHtml(offers) {
     .sort((a, b) => transaccionesState.groupBy === 'anio' ? b.localeCompare(a) : a.localeCompare(b));
   if (groups.has('__sin_dato__')) keys.push('__sin_dato__');
 
-  return controls + keys.map(key => {
+  return hint + controls + keys.map(key => {
     const label = key === '__sin_dato__' ? sinDatoLabel : key;
     const rows = groups.get(key);
     return `
@@ -2369,6 +2398,7 @@ function resetWizardState() {
   confirmedAttrs.clear();
   forceChooseAttrs.clear();
   Object.keys(multiDraft).forEach(k => delete multiDraft[k]);
+  rangeModeOverride.clear(); // si no, un toggle forzado en una compra se filtra a la siguiente (mismo attr, distinto ficha)
   clarifyNotice = null;
   currentTextoOriginal = '';
   draftCantidad = 1;

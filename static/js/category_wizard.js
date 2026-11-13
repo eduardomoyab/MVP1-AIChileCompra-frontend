@@ -70,6 +70,9 @@ const multiDraft = {};          // {attr: Set} -- selección en progreso de un p
 // que solo marcaba "forzar rango" pero nunca se leía al calcular isRange --
 // el botón "+ usar un rango" no hacía nada visible (reporte real).
 const rangeModeOverride = new Map();
+// Grupo abierto del acordeón de "Detalles opcionales" (ver detallesScreenHtml).
+// null => todavía no se decidió, se abre el primero con algo sin especificar.
+let detallesOpenGroup = null;
 let clarifyNotice = null;       // {message, question} -- la IA no pudo resolver el primer paso core
 // Tras agregar una compra: pantalla de siguientes pasos en vez del formulario vacío.
 let addedNotice = null;     // { sid, updated, itemId } -- solo vale para el formulario (SESSION_ID) donde se agregó
@@ -155,6 +158,7 @@ function getRememberedSession() {
    (item.revisados, ver saveCart) y se restauran al retomar el formulario
    (ver resumeSession). Los del borrador en curso siguen siendo efímeros. */
 let revisados = [];
+let revisadosExpanded = false;  // colapsado por defecto -- ver renderRevisadosPanel
 
 /* Cada revisado nace en el borrador en curso (itemId == null) y, al agregar
    la compra al requerimiento, queda asociado a ese ítem (itemId = id del
@@ -179,13 +183,13 @@ function renderRevisadosPanel() {
   // cuando aparece por primera vez (ver wiz-highlight), no en cada re-render
   // posterior (agregar/quitar otro producto no debería volver a animarlo).
   const justAppeared = el.innerHTML.trim() === '' && revisados.length > 0;
-  if (!revisados.length) { el.innerHTML = ''; return; }
-  el.innerHTML = `
-    <div class="bg-white border border-slate-200 rounded-xl p-3.5 mb-4">
-      <div class="flex items-center justify-between mb-1.5">
-        <p class="text-[10.5px] font-semibold text-slate-500 uppercase tracking-wide">Productos revisados (${revisados.length})</p>
-        <button type="button" data-revisados-clear class="text-[10.5px] text-slate-400 hover:text-red-500">Vaciar</button>
-      </div>
+  if (!revisados.length) { el.innerHTML = ''; revisadosExpanded = false; return; }
+
+  // Reporte real: "se ve muy verboso" -- el listado completo quedaba
+  // siempre a la vista apenas se guardaba un producto. Ahora, por
+  // defecto, solo el contador + el botón de comparar; la lista (y
+  // "Vaciar") se revela al tocar el contador (revisadosExpanded).
+  const listHtml = revisadosExpanded ? `
       <p class="text-[10.5px] text-slate-400 mb-2">Guardados para comparar -- no se agregan a la cotización.</p>
       <div class="space-y-1.5 mb-2.5">
         ${revisados.map(r => `
@@ -202,7 +206,18 @@ function renderRevisadosPanel() {
               <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
             </button>
           </div>`).join('')}
+      </div>` : '';
+
+  el.innerHTML = `
+    <div class="bg-white border border-slate-200 rounded-xl p-3.5 mb-4">
+      <div class="flex items-center justify-between mb-1.5">
+        <button type="button" data-toggle-revisados class="flex items-center gap-1 text-[10.5px] font-semibold text-slate-500 uppercase tracking-wide hover:text-brand-700 transition-colors">
+          Productos revisados (${revisados.length})
+          <svg class="w-3 h-3 transition-transform ${revisadosExpanded ? 'rotate-180' : ''}" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/></svg>
+        </button>
+        ${revisadosExpanded ? `<button type="button" data-revisados-clear class="text-[10.5px] text-slate-400 hover:text-red-500">Vaciar</button>` : ''}
       </div>
+      ${listHtml}
       <button type="button" data-ver-comparacion class="w-full flex items-center justify-center gap-1.5 py-2 bg-brand-50 hover:bg-brand-100 border border-brand-200 text-brand-700 text-[12.5px] font-semibold rounded-lg transition-colors ${justAppeared ? 'wiz-highlight' : ''}">
         <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 17V7m6 10V11m-9 6h12a2 2 0 002-2V7a2 2 0 00-2-2H6a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
         Ver tabla comparativa
@@ -241,6 +256,12 @@ function handleRevisadosClick(e) {
 
   if (e.target.closest('[data-ver-comparacion]')) {
     openModal(comparisonModalHtml(), { wide: true });
+    return;
+  }
+
+  if (e.target.closest('[data-toggle-revisados]')) {
+    revisadosExpanded = !revisadosExpanded;
+    renderRevisadosPanel();
     return;
   }
 }
@@ -1079,11 +1100,18 @@ function textoScreenHtml() {
 // estado propio en JS ni un listener dedicado (se pierde el "abierto" en
 // el próximo render(), igual que cualquier otro control nativo del DOM
 // que no se trackea a propósito -- aceptable para un tooltip).
-function helpIconHtml(helpText) {
+// tone: 'neutral' (gris, default -- descripción de atributo) | 'info'
+// (azul -- aviso informativo, ej. match de procesador) | 'warn' (ámbar --
+// aviso que de verdad conviene no perderse, ej. sin coincidencia).
+function helpIconHtml(helpText, tone) {
   if (!helpText) return '';
+  const dot = tone === 'info' ? 'border-brand-300 text-brand-600 hover:border-brand-500 hover:text-brand-700'
+    : tone === 'warn' ? 'border-amber-300 text-amber-600 hover:border-amber-500 hover:text-amber-700'
+    : 'border-slate-300 text-slate-400 hover:border-brand-400 hover:text-brand-500';
+  const text = tone === 'info' ? 'text-brand-600' : tone === 'warn' ? 'text-amber-700' : 'text-slate-500';
   return `<details class="help-q inline-block align-middle ml-1">
-    <summary class="inline-flex items-center justify-center w-4 h-4 rounded-full border border-slate-300 text-slate-400 text-[10px] font-semibold leading-none cursor-pointer select-none hover:border-brand-400 hover:text-brand-500">?</summary>
-    <p class="mt-1.5 text-[12px] text-slate-500 leading-snug bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-2 max-w-[320px]">${escapeHtml(helpText)}</p>
+    <summary class="inline-flex items-center justify-center w-4 h-4 rounded-full border ${dot} text-[10px] font-semibold leading-none cursor-pointer select-none">?</summary>
+    <p class="mt-1.5 text-[12px] ${text} leading-snug bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-2 max-w-[320px]">${escapeHtml(helpText)}</p>
   </details>`;
 }
 
@@ -1099,12 +1127,11 @@ function stepScreenHtml(step) {
       <div class="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
         <span class="inline-flex items-center text-[10.5px] font-semibold text-brand-700 bg-brand-50 border border-brand-100 rounded-full px-2.5 py-1 mb-3">Sugerido por IA</span>
         <h2 class="text-[22px] font-semibold text-brand-800 tracking-tight mb-4">${stepLabel(step)}${helpIconHtml(meta.help_text)}</h2>
-        <p class="text-[14px] text-slate-500 mb-1">Vimos que necesitas</p>
         <p class="text-[26px] font-semibold text-slate-900 tracking-tight mb-1">${escapeHtml(attrValueText(attr, current.value))}</p>
         ${current.gama_note ? `<p class="text-[12px] text-brand-600 leading-snug mb-6">${escapeHtml(current.gama_note)}</p>` : '<div class="mb-6"></div>'}
-        <div class="flex gap-2">
-          <button type="button" data-confirm="${step}" class="flex-1 py-2.5 bg-brand-600 hover:bg-brand-700 text-white text-[13.5px] font-semibold rounded-lg transition-colors">Sí, es correcto</button>
-          <button type="button" data-choose="${step}" class="px-4 py-2.5 bg-white border border-slate-200 hover:border-brand-300 text-slate-600 text-[13.5px] font-medium rounded-lg transition-colors">Elegir otro</button>
+        <div class="flex items-center gap-3">
+          <button type="button" data-confirm="${step}" class="flex-1 py-2.5 bg-brand-600 hover:bg-brand-700 text-white text-[13.5px] font-semibold rounded-lg transition-colors">Confirmar</button>
+          <button type="button" data-choose="${step}" class="text-[13px] font-medium text-slate-500 hover:text-brand-700 transition-colors">Elegir otro</button>
         </div>
       </div>`;
   }
@@ -1305,12 +1332,14 @@ function hasAttrValue(attr) {
   return v != null && v !== '';
 }
 
-// Una sola tabla, un atributo por fila -- no "una pared de chips" como
-// antes (ni tampoco dos secciones separadas, lo definido arriba y lo
-// faltante abajo): todo en el mismo lugar, orden consistente con
-// core_order/schema, para que escale solo a categorías futuras sin
-// necesitar una taxonomía de "grupos de atributos" por categoría que hoy
-// el schema no tiene.
+// Un atributo por fila -- no "una pared de chips" como antes (ni tampoco
+// dos secciones separadas, lo definido arriba y lo faltante abajo): todo
+// en el mismo lugar, orden consistente con core_order/schema. Se agrupan
+// en acordeones por AttributeSchema.group (ver categories/schema.py) --
+// reporte real: "se ve muy verboso" con los ~10 atributos siempre a la
+// vista. Es opcional: una categoría que no declare `group` en ninguno de
+// sus atributos opcionales sigue viendo la tabla plana de siempre (ver
+// detallesScreenHtml), así que esto no le exige nada a categorías futuras.
 function attrTableRowHtml(attr) {
   const current = ficha[attr];
   const hasValue = hasAttrValue(attr);
@@ -1327,6 +1356,20 @@ function attrTableRowHtml(attr) {
     </div>`;
 }
 
+function detallesGroupHtml(name, attrs) {
+  const open = detallesOpenGroup === name;
+  const filled = attrs.filter(hasAttrValue).length;
+  return `
+    <div>
+      <button type="button" data-toggle-group="${escapeHtml(name)}" class="w-full flex items-center gap-2.5 px-3.5 py-3 bg-slate-50 hover:bg-slate-100 text-left transition-colors">
+        <span class="text-[12.5px] font-semibold text-slate-700 flex-1">${escapeHtml(name)}</span>
+        <span class="text-[11px] text-slate-400">${filled} de ${attrs.length}</span>
+        <svg class="w-3.5 h-3.5 text-slate-400 flex-shrink-0 transition-transform ${open ? 'rotate-180' : ''}" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/></svg>
+      </button>
+      ${open ? `<div class="divide-y divide-slate-100">${attrs.map(attrTableRowHtml).join('')}</div>` : ''}
+    </div>`;
+}
+
 function detallesScreenHtml() {
   const unsetAttrs = OPTIONAL_ATTRS.filter(a => !hasAttrValue(a));
 
@@ -1336,13 +1379,32 @@ function detallesScreenHtml() {
       <p class="text-[12px] text-amber-800 leading-snug">Lo que quede sin especificar (resaltado abajo) podría llegarte con distintos valores u opciones en la oferta -- distintas marcas, sistemas operativos, etc.</p>
     </div>` : '';
 
+  const groups = {};
+  OPTIONAL_ATTRS.forEach(attr => {
+    const g = SCHEMA.attributes[attr]?.group;
+    if (g) (groups[g] = groups[g] || []).push(attr);
+  });
+  const groupNames = Object.keys(groups);
+  // Si la categoría no agrupó ningún atributo opcional (o agrupó solo
+  // algunos), nada de acordeón -- tabla plana de siempre para no dejar
+  // atributos sueltos fuera de cualquier grupo.
+  const grouped = groupNames.length > 0 && groupNames.reduce((n, g) => n + groups[g].length, 0) === OPTIONAL_ATTRS.length;
+
+  if (grouped && detallesOpenGroup == null) {
+    detallesOpenGroup = groupNames.find(g => groups[g].some(a => !hasAttrValue(a))) || groupNames[0];
+  }
+
+  const bodyHtml = grouped
+    ? groupNames.map(g => detallesGroupHtml(g, groups[g])).join('')
+    : OPTIONAL_ATTRS.map(attrTableRowHtml).join('');
+
   return `
     <div class="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
       <p class="text-[11px] font-semibold text-brand-600 uppercase tracking-wide mb-1">Detalles opcionales</p>
       <p class="text-[13px] text-slate-400 mb-3">Puedes omitir cualquiera de estos y continuar.</p>
       ${unsetNotice}
       <div class="border border-slate-200 rounded-xl divide-y divide-slate-100 overflow-hidden">
-        ${OPTIONAL_ATTRS.map(attrTableRowHtml).join('')}
+        ${bodyHtml}
       </div>
       <button type="button" data-finish-optional class="w-full mt-4 py-2.5 bg-brand-600 hover:bg-brand-700 text-white text-[13.5px] font-semibold rounded-lg transition-colors">Continuar</button>
     </div>`;
@@ -1621,6 +1683,13 @@ function bindScreenEvents() {
   });
   screenEl.querySelectorAll('[data-finish-optional]').forEach(btn => {
     btn.addEventListener('click', () => advanceStep());
+  });
+  screenEl.querySelectorAll('[data-toggle-group]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const g = btn.dataset.toggleGroup;
+      detallesOpenGroup = (detallesOpenGroup === g) ? null : g;
+      renderScreen();
+    });
   });
   screenEl.querySelectorAll('[data-confirm]').forEach(btn => {
     btn.addEventListener('click', () => onAttrConfirmed(btn.dataset.confirm));
@@ -1978,15 +2047,29 @@ function renderPricePanel() {
     return;
   }
 
+  // Reporte real: "se ve muy verboso" -- Convenio Marco y Compra Ágil
+  // apilaban sus dos paneles completos uno sobre otro. Con ambos
+  // presentes pasan a tabs (uno a la vista a la vez); con uno solo no hay
+  // nada que tabular, se muestra directo como siempre.
+  const hasBoth = hasCm && !!priceData;
   let html = '';
-  if (hasCm) html += cmBlockHtml(cmPriceData);
-  if (priceData) {
-    html += caBlockHtml(priceData, !hasCm);
-  } else if (hasCm) {
-    html += `<p class="text-[11px] text-slate-400 mt-2">Sin compras históricas de Compra Ágil registradas para esta combinación.</p>`;
-  }
-  if (CONFIG.supportsConvenioMarco && !cmPriceData) {
-    html += cmNotFoundHtml();
+  if (hasBoth) {
+    html += `
+      <div class="flex gap-5 border-b border-slate-200 mb-3.5">
+        <button type="button" data-price-tab="cm" class="pb-2 text-[13px] font-semibold -mb-px border-b-2 transition-colors ${priceTab === 'cm' ? 'text-brand-800 border-brand-600' : 'text-slate-400 border-transparent hover:text-slate-600'}">Convenio Marco</button>
+        <button type="button" data-price-tab="ca" class="pb-2 text-[13px] font-semibold -mb-px border-b-2 transition-colors ${priceTab === 'ca' ? 'text-brand-800 border-brand-600' : 'text-slate-400 border-transparent hover:text-slate-600'}">Compra Ágil</button>
+      </div>`;
+    html += priceTab === 'ca' ? caBlockHtml(priceData, true) : cmBlockHtml(cmPriceData);
+  } else {
+    if (hasCm) html += cmBlockHtml(cmPriceData);
+    if (priceData) {
+      html += caBlockHtml(priceData, !hasCm);
+    } else if (hasCm) {
+      html += `<p class="text-[11px] text-slate-400 mt-2">Sin compras históricas de Compra Ágil registradas para esta combinación.</p>`;
+    }
+    if (CONFIG.supportsConvenioMarco && !cmPriceData) {
+      html += cmNotFoundHtml();
+    }
   }
 
   panel.innerHTML = html;
@@ -2012,15 +2095,17 @@ function cmPagerHtml(allProducts) {
 // ESE nivel Y los superiores. Sin este aviso no había forma de saber, desde
 // el wizard, que un i9/Ryzen 9 en la lista de abajo también cumple lo
 // pedido -- parecía un resultado "de más" en vez de una opción válida.
+// Reporte real (2): "se ve muy verboso" -- el texto ya no queda siempre a
+// la vista, pasa al mismo ícono "?" que el help_text de los atributos.
 function cmProcessorMatchNoticeHtml(cm) {
   if (cm.processor_match === 'gama' && !cm.processor_relaxed) {
-    return `<p class="text-[10.5px] text-brand-600 mb-2">Incluye también equipos con procesadores de rendimiento igual o superior al pedido.</p>`;
+    return helpIconHtml('Incluye también equipos con procesadores de rendimiento igual o superior al pedido.', 'info');
   }
   if (cm.processor_match === 'gama' && cm.processor_relaxed) {
-    return `<p class="text-[10.5px] text-brand-600 mb-2">No encontramos match exacto de procesador -- se muestran equipos de rendimiento equivalente o superior, de cualquier marca.</p>`;
+    return helpIconHtml('No encontramos match exacto de procesador -- se muestran equipos de rendimiento equivalente o superior, de cualquier marca.', 'info');
   }
   if (cm.processor_match === 'none' && cm.processor_relaxed) {
-    return `<p class="text-[10.5px] text-amber-700 mb-2">Sin coincidencia de procesador -- se muestran productos con el resto de las características solicitadas.</p>`;
+    return helpIconHtml('Sin coincidencia de procesador -- se muestran productos con el resto de las características solicitadas.', 'warn');
   }
   return '';
 }
@@ -2076,13 +2161,7 @@ function cmBlockHtml(cm) {
         <span class="text-[10px] font-semibold text-brand-600 bg-white border border-brand-200 rounded-full px-2 py-0.5">Opción recomendada</span>
       </div>
       <p class="text-[24px] font-bold text-brand-800 leading-none mt-1.5 mb-0.5">${formatCLP(conIva(cm.median))}</p>
-      <p class="text-[11.5px] text-brand-600 mb-3">rango ${formatCLP(conIva(cm.min))} – ${formatCLP(conIva(cm.max))} · ${escapeHtml(cm.count)} producto${cm.count === 1 ? '' : 's'} disponible${cm.count === 1 ? '' : 's'} · con IVA (catálogo neto + 19 %)</p>
-      ${cmProcessorMatchNoticeHtml(cm)}
-      ${productsHtml && revisados.length === 0 ? `
-      <p class="flex items-center gap-1.5 text-[10.5px] text-brand-700 bg-white/70 border border-brand-200 rounded-md px-2.5 py-1.5 mb-2">
-        <svg class="w-3.5 h-3.5 flex-shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path stroke-linecap="round" d="M12 11v5m0-8h.01"/></svg>
-        Toca uno o más productos para guardarlos y compararlos en "Mi cotización".
-      </p>` : ''}
+      <p class="text-[11.5px] text-brand-600 mb-3">rango ${formatCLP(conIva(cm.min))} – ${formatCLP(conIva(cm.max))} · ${escapeHtml(cm.count)} producto${cm.count === 1 ? '' : 's'} disponible${cm.count === 1 ? '' : 's'} · con IVA (catálogo neto + 19 %)${cmProcessorMatchNoticeHtml(cm)}</p>
       ${productsHtml ? `<div class="space-y-1.5">${productsHtml}</div>` : ''}
       ${cmPagerHtml(allProducts)}
     </div>`;
@@ -2148,6 +2227,10 @@ const transaccionesState = {
 // estimate_price ya pide el catálogo completo con top_n=200, así que no
 // hace falta volver a pedirle nada al backend para pasar de página).
 const cmState = { page: 1, pageSize: 5 };
+
+// Tab visible cuando ambos paneles de precio existen (ver renderPricePanel).
+// 'cm' por defecto -- es la "Opción recomendada" ya marcada en cmBlockHtml.
+let priceTab = 'cm';
 
 function transaccionKey(o) {
   return String(o.id_oferta_aquiles ?? o.codigo_requerimiento ?? `${o.fecha_modificacion}-${o.precio_unitario_iva}`);
@@ -2432,10 +2515,12 @@ function resetWizardState() {
   forceChooseAttrs.clear();
   Object.keys(multiDraft).forEach(k => delete multiDraft[k]);
   rangeModeOverride.clear(); // si no, un toggle forzado en una compra se filtra a la siguiente (mismo attr, distinto ficha)
+  detallesOpenGroup = null;
   clarifyNotice = null;
   currentTextoOriginal = '';
   draftCantidad = 1;
   revisados = revisados.filter(r => r.itemId != null); // los del borrador descartado se van
+  revisadosExpanded = false;
   transaccionesState.expanded = false;
   transaccionesState.offers = null;
   transaccionesState.loading = false;
@@ -2443,6 +2528,7 @@ function resetWizardState() {
   transaccionesState.page = 1;
   transaccionesState.total = 0;
   cmState.page = 1;
+  priceTab = 'cm';
   offTopicNotice = null;
 }
 
@@ -2910,6 +2996,13 @@ function bindGlobalPriceDelegation() {
         if (list) list.innerHTML = `<p class="text-[11px] text-slate-400 py-1">Cargando...</p>`;
         loadTransacciones();
       }
+      return;
+    }
+
+    const priceTabBtn = e.target.closest('[data-price-tab]');
+    if (priceTabBtn) {
+      priceTab = priceTabBtn.dataset.priceTab;
+      renderPricePanel();
       return;
     }
 

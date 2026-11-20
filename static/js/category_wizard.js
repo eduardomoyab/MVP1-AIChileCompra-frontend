@@ -1205,7 +1205,7 @@ function controlHtml(step, attr, meta) {
       const cachedChips = facetsCache[attr];
       return `
         <div class="flex flex-wrap gap-2 mb-3 min-h-[30px]" data-chips="${attr}">
-          ${cachedChips ? chipsHtml(cachedChips) : chipsLoadingHtml()}
+          ${cachedChips ? chipsHtml(cachedChips, attr) : chipsLoadingHtml()}
         </div>
         <input type="text" data-input="${attr}" autocomplete="off"
                placeholder="O escribe el valor y presiona Enter..."
@@ -1231,7 +1231,13 @@ function animateIn(el) {
 // apareciendo coincidencias, tipo dropdown" en vez de una pared de chips
 // siempre visible). dropdown=false (default) mantiene el estilo de chips
 // en burbuja que ya se usa en los pasos core y los enum fijos chicos.
-function chipsHtml(values, { dropdown = false } = {}) {
+// Reporte real: "no detectó laptop" -- la ficha SÍ traía el valor (de la IA
+// o del fallback determinístico), pero esta grilla nunca marcaba ningún
+// chip como seleccionado, a diferencia de multiChipsHtml (enum_multi) que
+// ya mostraba "✓ valor" -- parecía que nada se había detectado aunque sí
+// estaba guardado. `attr` es opcional (el dropdown de autocompletar no lo
+// necesita, se cierra solo al elegir) para no romper ese otro uso.
+function chipsHtml(values, attr, { dropdown = false } = {}) {
   if (!values.length) {
     return dropdown ? '' : `<span class="text-[11px] text-slate-300 italic">sin sugerencias -- escribe el valor</span>`;
   }
@@ -1246,14 +1252,18 @@ function chipsHtml(values, { dropdown = false } = {}) {
     const hint = hidden > 0 ? `<p class="text-[10.5px] text-slate-400 italic px-2.5 py-1">+${hidden} más -- sigue escribiendo para acotar</p>` : '';
     return rows + hint;
   }
+  const current = attr ? ficha[attr]?.value : undefined;
   const hint = hidden > 0
     ? `<span class="text-[11px] text-slate-400 italic px-1 py-1">+${hidden} más -- escribe para buscar</span>`
     : '';
-  return shown.map(v => `
+  return shown.map(v => {
+    const isSel = current != null && current === v.value;
+    return `
     <button type="button" data-chip="${escapeHtml(v.value)}"
-            class="facet-chip text-[11.5px] font-medium border rounded-full px-2.5 py-1 bg-white text-slate-600 border-slate-200 hover:border-brand-300 hover:text-brand-700 transition-colors">
-      ${escapeHtml(v.value)}
-    </button>`).join('') + hint;
+            class="facet-chip text-[11.5px] font-medium border rounded-full px-2.5 py-1 transition-colors ${isSel ? 'bg-brand-600 text-white border-brand-600' : 'bg-white text-slate-600 border-slate-200 hover:border-brand-300 hover:text-brand-700'}">
+      ${isSel ? '✓ ' : ''}${escapeHtml(v.value)}
+    </button>`;
+  }).join('') + hint;
 }
 
 // ── enum_multi: chips toggle + botón de confirmación explícito ──────
@@ -1916,7 +1926,7 @@ function refreshFacetsFor(steps) {
         } else {
           const container = screenEl.querySelector(`[data-chips="${attr}"]`);
           if (container) {
-            container.innerHTML = chipsHtml(facetsCache[attr]);
+            container.innerHTML = chipsHtml(facetsCache[attr], attr);
             animateIn(container);
             bindChipButtons(container);
             const input = container.parentElement && container.parentElement.querySelector(`[data-input="${attr}"]`);
@@ -1947,7 +1957,7 @@ function ensureFacetsLoaded(attr) {
       facetsCache[attr] = raw.map(v => (typeof v === 'string' ? { value: v, count: null } : v));
       const container = screenEl.querySelector(`[data-chips="${attr}"]`);
       if (container) {
-        container.innerHTML = chipsHtml(facetsCache[attr]);
+        container.innerHTML = chipsHtml(facetsCache[attr], attr);
         animateIn(container);
         bindChipButtons(container);
       }
@@ -1970,7 +1980,7 @@ function filterChipsFor(attr, query) {
   } else if (q) {
     base = base.filter(v => v.value.toLowerCase().includes(q));
   }
-  container.innerHTML = chipsHtml(base, { dropdown: isDropdown });
+  container.innerHTML = chipsHtml(base, attr, { dropdown: isDropdown });
   if (isDropdown) container.classList.toggle('hidden', !q || base.length === 0);
   animateIn(container);
   bindChipButtons(container);

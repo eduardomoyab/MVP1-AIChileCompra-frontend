@@ -33,6 +33,18 @@
     .help-q > summary { list-style: none; }
     .help-q > summary::-webkit-details-marker { display: none; }
     .help-q > summary::marker { display: none; }
+    /* Reporte real: el <p> revelado empujaba todo el contenido de abajo
+       hacia abajo -- se saca del flujo normal y se superpone en vez de
+       empujar (ver helpIconHtml en category_wizard.js). */
+    .help-q .help-pop {
+      position: absolute; top: calc(100% + 8px); left: 0; z-index: 30;
+      box-shadow: 0 8px 24px -6px rgba(15,23,42,.18), 0 2px 6px rgba(15,23,42,.06);
+    }
+    .help-q .help-pop::before {
+      content: ''; position: absolute; top: -5px; left: 10px;
+      width: 9px; height: 9px; background: #fff;
+      border-left: 1px solid #e2e8f0; border-top: 1px solid #e2e8f0; transform: rotate(45deg);
+    }
 
     /* Vista previa del documento (técnico, sin precios): misma estructura que
        el PDF que genera el backend (services/pdf_service.py). */

@@ -1109,9 +1109,13 @@ function helpIconHtml(helpText, tone) {
     : tone === 'warn' ? 'border-amber-300 text-amber-600 hover:border-amber-500 hover:text-amber-700'
     : 'border-slate-300 text-slate-400 hover:border-brand-400 hover:text-brand-500';
   const text = tone === 'info' ? 'text-brand-600' : tone === 'warn' ? 'text-amber-700' : 'text-slate-500';
-  return `<details class="help-q inline-block align-middle ml-1">
+  // Reporte real: "se ve horrible, mueve todo" -- el <p> revelado por
+  // <details> vivía en el flujo normal del documento y empujaba todo lo
+  // de abajo. Ahora help-pop (computadores.html) lo saca del flujo con
+  // position:absolute -- se superpone, no empuja nada.
+  return `<details class="help-q relative inline-block align-middle ml-1">
     <summary class="inline-flex items-center justify-center w-4 h-4 rounded-full border ${dot} text-[10px] font-semibold leading-none cursor-pointer select-none">?</summary>
-    <p class="mt-1.5 text-[12px] ${text} leading-snug bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-2 max-w-[320px]">${escapeHtml(helpText)}</p>
+    <p class="help-pop text-[12px] ${text} leading-snug bg-white border border-slate-200 rounded-lg px-2.5 py-2 max-w-[240px]">${escapeHtml(helpText)}</p>
   </details>`;
 }
 
@@ -1154,6 +1158,7 @@ function stepScreenHtml(step) {
         <span class="ml-auto text-[11px] text-slate-400">Paso ${CORE_STEPS.indexOf(step) + 1} de ${CORE_STEPS.length}</span>
       </div>
       <p class="step-title">${pickerCaption(step, meta)}</p>
+      ${current?.gama_note ? `<p class="text-[12px] text-brand-600 leading-snug -mt-3 mb-4">${escapeHtml(current.gama_note)}</p>` : ''}
       ${notice}
       ${controlHtml(step, attr, meta)}
       ${secondaryHtml}

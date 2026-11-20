@@ -14,6 +14,23 @@ load_dotenv()
 
 app = Flask(__name__)
 
+# Cache-busting de estáticos (JS/CSS) -- category_wizard.js en particular
+# se reescribe muy seguido, y los <script src="/static/..."> no llevaban
+# ningún query param de versión: el navegador podía seguir sirviendo una
+# copia cacheada de ANTES de un deploy, dando la impresión de que un fix
+# recién pusheado "no sirvió" (reporte real: un fix que ya se había hecho
+# antes parecía seguir roto). Se usa el mtime de este mismo archivo
+# (app.py) como versión -- todo deploy nuevo lo copia de cero (Dockerfile:
+# `COPY . .`), así que cambia en cada deploy y es igual para los workers
+# de gunicorn (mismo filesystem del contenedor), sin depender de ninguna
+# variable de entorno de Railway en particular.
+_ASSET_VERSION = str(int(os.path.getmtime(__file__)))
+
+
+@app.context_processor
+def inject_asset_version():
+    return {"av": _ASSET_VERSION}
+
 # Railway (como cualquier PaaS con proxy delante) hace que Flask vea HTTP
 # internamente aunque el usuario entre por HTTPS -- sin esto, url_for(...,
 # _external=True) arma el redirect_uri de Google OAuth como http://, que no

@@ -8,7 +8,7 @@
 
   {% include "_tailwind.html" %}
 
-  <link rel="stylesheet" href="/static/css/style.css" />
+  <link rel="stylesheet" href="/static/css/style.css?v={{ av }}" />
   <style>
     @media (max-width: 1023px) { .mobile-hidden { display: none !important; } }
     /* Colapso del sidebar de conversaciones en desktop (toggleSidebarCollapse()
@@ -818,7 +818,7 @@
   {% include "_session_modal.html" %}
 
   <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
-  <script src="/static/js/shell.js"></script>
-  <script src="/static/js/app.js"></script>
+  <script src="/static/js/shell.js?v={{ av }}"></script>
+  <script src="/static/js/app.js?v={{ av }}"></script>
 </body>
 </html>

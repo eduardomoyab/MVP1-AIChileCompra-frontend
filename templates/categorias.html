@@ -8,7 +8,7 @@
 
   {% include "_tailwind.html" %}
 
-  <link rel="stylesheet" href="/static/css/style.css" />
+  <link rel="stylesheet" href="/static/css/style.css?v={{ av }}" />
 </head>
 
 <body class="h-screen flex flex-col bg-executive overflow-hidden">
@@ -77,7 +77,7 @@
 
   {% include "_session_modal.html" %}
 
-  <script src="/static/js/shell.js"></script>
-  <script src="/static/js/home.js"></script>
+  <script src="/static/js/shell.js?v={{ av }}"></script>
+  <script src="/static/js/home.js?v={{ av }}"></script>
 </body>
 </html>

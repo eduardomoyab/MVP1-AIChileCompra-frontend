@@ -8,8 +8,8 @@
 
   {% include "_tailwind.html" %}
 
-  <link rel="stylesheet" href="/static/css/style.css" />
-  <link rel="stylesheet" href="/static/css/resumen.css" />
+  <link rel="stylesheet" href="/static/css/style.css?v={{ av }}" />
+  <link rel="stylesheet" href="/static/css/resumen.css?v={{ av }}" />
   <style>
     /* Transición de "pantalla" al pasar de un paso a otro -- idéntico
        mecanismo que medicamentos.html (#med-screen-enter), solo con el
@@ -204,9 +204,9 @@
 
   {% include "_session_modal.html" %}
 
-  <script src="/static/js/shell.js"></script>
-  <script src="/static/js/computadores_wizard.js"></script>
-  <script src="/static/js/category_wizard.js"></script>
-  <script src="/static/js/resumen.js"></script>
+  <script src="/static/js/shell.js?v={{ av }}"></script>
+  <script src="/static/js/computadores_wizard.js?v={{ av }}"></script>
+  <script src="/static/js/category_wizard.js?v={{ av }}"></script>
+  <script src="/static/js/resumen.js?v={{ av }}"></script>
 </body>
 </html>

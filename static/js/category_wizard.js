@@ -105,6 +105,7 @@ const progressWrap     = document.getElementById('wiz-progress-wrap');
 const progressSegments = document.getElementById('wiz-progress-segments');
 const priceMiniEl      = document.getElementById('wiz-price-mini');
 const backBtn          = document.getElementById('wiz-back-btn');
+const forwardBtn       = document.getElementById('wiz-forward-btn');
 const screenEl         = document.getElementById('wiz-screen');
 
 /* ── Carrito (por formulario, persistido en el servidor) ─────────────────
@@ -901,6 +902,22 @@ function goBack() {
   renderScreen();
 }
 
+// Reporte real: "agregar una flecha para ir hacia adelante, para poder
+// jugar y ver si realmente se guardan los cambios entremedio -- si
+// retrocedo más de lo que debía, tengo que volver a enviar los atributos
+// que ya había detallado". Simétrica a goBack(): solo "asoma" un paso
+// hacia adelante, sin exigir volver a confirmar nada -- si ese paso ya
+// tenía un valor (de la IA o tuyo), se ve tal cual quedó.
+function goForward() {
+  resumenReturnStep = null;
+  if (currentStepIndex >= TOTAL_STEPS) return; // ya en el resumen
+  currentStepIndex += 1;
+  renderScreen();
+  if (currentStepIndex < CORE_STEPS.length) {
+    refreshFacetsFor([CORE_STEPS[currentStepIndex]]);
+  }
+}
+
 function pickValue(attr, value) {
   ficha[attr] = { attribute: attr, value, source: 'user', normalized: true, score: 1 };
   manualUpdate(attr, value);
@@ -912,6 +929,7 @@ function pickValue(attr, value) {
     // a la lista (ver optionalAttrEditScreenHtml / detallesScreenHtml), o
     // directo al resumen si se entró editando desde ahí (ver
     // editAttrFromSummary).
+    delete multiDraft[attr]; // ver nota en el handler data-back-optional
     editingOptionalAttr = null;
     if (resumenReturnStep != null) {
       currentStepIndex = resumenReturnStep;
@@ -927,6 +945,7 @@ function pickValue(attr, value) {
 function clearOptionalAttr(attr) {
   ficha[attr] = null;
   manualUpdate(attr, null);
+  delete multiDraft[attr]; // ver nota en el handler data-back-optional
   editingOptionalAttr = null;
   if (resumenReturnStep != null) {
     currentStepIndex = resumenReturnStep;
@@ -989,6 +1008,7 @@ function updateProgressBar() {
     segs.push(`<div class="h-1 flex-1 rounded-full ${cls} transition-colors"></div>`);
   }
   progressSegments.innerHTML = segs.join('');
+  forwardBtn.disabled = currentStepIndex >= TOTAL_STEPS;
 }
 
 function renderPriceMini() {
@@ -1089,7 +1109,7 @@ function addedScreenHtml() {
         <div class="flex items-center justify-between gap-4 border border-slate-200 rounded-xl px-5 py-4">
           <div class="min-w-0">
             <p class="text-[14px] font-semibold text-slate-800">Agregar otro producto</p>
-            <p class="text-[12.5px] text-slate-500 mt-1 leading-relaxed">Suma otra compra a este mismo requerimiento -- por ejemplo un monitor, un mouse o un segundo tipo de equipo.</p>
+            <p class="text-[12.5px] text-slate-500 mt-1 leading-relaxed">Suma otra compra de computadores a este mismo requerimiento -- por ejemplo un segundo tipo de equipo, o más unidades con otras especificaciones.</p>
           </div>
           <button type="button" data-added-more aria-label="Agregar otro producto"
                   class="flex-shrink-0 w-11 h-11 flex items-center justify-center bg-brand-600 hover:bg-brand-700 text-white rounded-full transition-colors shadow-sm">
@@ -1147,7 +1167,14 @@ function textoScreenHtml() {
         <p class="text-[12.5px] font-semibold text-emerald-800">Agregando la compra ${cart.length + 1} a este requerimiento</p>
         <p class="text-[11.5px] text-emerald-600 mt-0.5 leading-snug">Ya tienes ${cart.length} compra${cart.length === 1 ? '' : 's'} en tu cotización -- lo que describas acá se suma al mismo requerimiento.</p>
       </div>
-      <button type="button" data-nuevo-requerimiento-completo class="flex-shrink-0 text-[11px] font-medium text-emerald-700 hover:text-emerald-900 underline whitespace-nowrap">¿Requerimiento distinto?</button>
+      <div class="flex-shrink-0 flex flex-col items-end gap-1">
+        <!-- Reporte real: "al presionar 'Agregar otro producto' no está la
+             opción de devolverse en caso de que se haya apretado por
+             equivocación" -- vuelve a abrir la última compra ya guardada
+             (mismo editCartItem que usa "Mi cotización"). -->
+        <button type="button" data-volver-ultima-compra class="text-[11px] font-medium text-emerald-700 hover:text-emerald-900 underline whitespace-nowrap">Volver a la compra anterior</button>
+        <button type="button" data-nuevo-requerimiento-completo class="text-[11px] font-medium text-emerald-700 hover:text-emerald-900 underline whitespace-nowrap">¿Requerimiento distinto?</button>
+      </div>
     </div>` : '';
   return inputScreenHtml({
     prefix: 'wiz',
@@ -1786,12 +1813,24 @@ function bindScreenEvents() {
   });
   const nuevoRequerimientoCompleto = screenEl.querySelector('[data-nuevo-requerimiento-completo]');
   if (nuevoRequerimientoCompleto) nuevoRequerimientoCompleto.addEventListener('click', confirmarNuevoRequerimiento);
+  const volverUltimaCompra = screenEl.querySelector('[data-volver-ultima-compra]');
+  if (volverUltimaCompra) volverUltimaCompra.addEventListener('click', () => {
+    const last = cart[cart.length - 1];
+    if (last) editCartItem(last.id);
+  });
 
   screenEl.querySelectorAll('[data-edit-optional]').forEach(btn => {
     btn.addEventListener('click', () => { editingOptionalAttr = btn.dataset.editOptional; renderScreen(); });
   });
   screenEl.querySelectorAll('[data-back-optional]').forEach(btn => {
     btn.addEventListener('click', () => {
+      // Reporte real: "si presiono + definir y modifico o no el atributo,
+      // al devolverme no me deja volver a apretar + definir para ese mismo
+      // atributo" -- multiDraft[attr] (selección en progreso de un
+      // enum_multi/dict-multivalor) nunca se limpiaba al salir del editor
+      // sin confirmar, así que la próxima vez que se abría reusaba ese
+      // borrador viejo en vez de partir fresco desde ficha[attr].
+      if (editingOptionalAttr) delete multiDraft[editingOptionalAttr];
       editingOptionalAttr = null;
       if (resumenReturnStep != null) {
         currentStepIndex = resumenReturnStep;
@@ -2002,8 +2041,19 @@ function bindMultiChipButtons(container) {
       const val = btn.dataset.multiChip;
       const set = multiDraft[attr];
       set.has(val) ? set.delete(val) : set.add(val);
-      container.innerHTML = multiChipsHtml(attr, facetsCache[attr] || []);
-      bindMultiChipButtons(container);
+      // Reporte real: "filtro por el número 7 o 9... si quiero seguir
+      // apretando procesadores con 9, tengo que borrar el 9 y volver a
+      // escribirlo" -- antes, al tocar un chip, se repintaba siempre con
+      // la lista COMPLETA sin filtro (perdía lo ya escrito en el
+      // buscador). Ahora vuelve a aplicar el mismo filtro activo, si hay
+      // uno, en vez de resetear a todo.
+      const input = screenEl.querySelector(`[data-multi-input="${attr}"]`);
+      if (input && input.value.trim()) {
+        filterMultiChipsFor(attr, input.value);
+      } else {
+        container.innerHTML = multiChipsHtml(attr, facetsCache[attr] || []);
+        bindMultiChipButtons(container);
+      }
       const confirmBtn = screenEl.querySelector(`[data-confirm-multi]`);
       if (confirmBtn) confirmBtn.disabled = set.size === 0;
     });
@@ -3303,6 +3353,7 @@ document.addEventListener('DOMContentLoaded', () => {
   // revisados NO se carga de ningún lado -- arranca vacío siempre (ver nota junto a "let revisados = []").
   bindGlobalPriceDelegation();
   backBtn.addEventListener('click', goBack);
+  forwardBtn.addEventListener('click', goForward);
   const historialTopBtn = document.querySelector('#wiz-progress-wrap [data-abrir-historial]');
   if (historialTopBtn) historialTopBtn.addEventListener('click', openHistorial);
   const historySidebar = document.getElementById('wiz-history-sidebar');

@@ -115,6 +115,14 @@
                   class="flex-shrink-0 w-7 h-7 flex items-center justify-center rounded-lg text-slate-400 hover:text-brand-600 hover:bg-slate-50 transition-colors">
             <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7"/></svg>
           </button>
+          <!-- Reporte real: "agregar una flecha para ir hacia adelante,
+               para poder jugar y ver si realmente se guardan los cambios
+               entremedio" -- simétrica a wiz-back-btn (ver goForward en
+               category_wizard.js); se deshabilita sola al llegar al resumen. -->
+          <button id="wiz-forward-btn" type="button" aria-label="Avanzar"
+                  class="flex-shrink-0 w-7 h-7 flex items-center justify-center rounded-lg text-slate-400 hover:text-brand-600 hover:bg-slate-50 disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:bg-transparent transition-colors">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/></svg>
+          </button>
           <div id="wiz-progress-segments" class="flex-1 flex gap-1.5"></div>
           <span id="wiz-price-mini" class="hidden flex-shrink-0 text-[14px] font-extrabold text-emerald-700 bg-emerald-50 border border-emerald-200 px-3 py-1 rounded-full transition-opacity duration-150"></span>
           <button type="button" data-abrir-historial aria-label="Formularios guardados"

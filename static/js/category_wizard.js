@@ -2044,17 +2044,21 @@ function loadPrice() {
 // ── Panel de precio: Convenio Marco (si existe) es la opción destacada --
 // es el canal de compra preferente cuando hay catálogo vigente que calce.
 // Compra Ágil (histórico) queda como respaldo secundario, con su propio
-// listado de transacciones reales detrás (ver bindGlobalPriceDelegation). Si la
-// categoría no soporta CM, o CM no tiene match para esta especificación
-// exacta, Compra Ágil vuelve a ser la opción principal -- nunca se oculta
-// en silencio (ver cmNotFoundHtml). ──────────────────────────────────────
+// listado de transacciones reales detrás (ver bindGlobalPriceDelegation).
+// Si la categoría soporta CM, SIEMPRE se muestran los dos tabs -- aunque a
+// uno de los dos le falte dato para esta especificación puntual, queda
+// visible pero deshabilitado (con el motivo al pasar el mouse) en vez de
+// desaparecer sin explicación (reporte real: "mejor que salga la
+// pestañita igual, pero no seleccionable, y que diga por qué al pasar el
+// mouse"). ──────────────────────────────────────
 function renderPricePanel() {
   const panel = document.getElementById('wiz-price-panel-full');
   if (!panel) return;
 
   const hasCm = CONFIG.supportsConvenioMarco && !!cmPriceData;
+  const hasCa = !!priceData;
 
-  if (!priceData && !hasCm) {
+  if (!hasCa && !hasCm) {
     panel.innerHTML = `
       <div class="bg-slate-50 border border-slate-200 rounded-xl p-4 text-center">
         <p class="text-[12.5px] text-slate-400">No hay compras registradas para esta combinación de atributos todavía.</p>
@@ -2062,39 +2066,35 @@ function renderPricePanel() {
     return;
   }
 
-  // Reporte real: "se ve muy verboso" -- Convenio Marco y Compra Ágil
-  // apilaban sus dos paneles completos uno sobre otro. Con ambos
-  // presentes pasan a tabs (uno a la vista a la vez); con uno solo no hay
-  // nada que tabular, se muestra directo como siempre.
-  const hasBoth = hasCm && !!priceData;
   let html = '';
-  if (hasBoth) {
+  if (CONFIG.supportsConvenioMarco) {
+    // Si el tab activo se quedó sin datos (cambió la ficha), cae al que sí tiene.
+    if (priceTab === 'cm' && !hasCm) priceTab = 'ca';
+    if (priceTab === 'ca' && !hasCa) priceTab = 'cm';
+
     // Reporte real: "que se vea más vistoso o más intuitivo que se debe
     // presionar" -- el tab de solo texto+subrayado no se leía como
     // presionable. Control segmentado (pastilla activa sobre track gris),
     // mismo lenguaje visual que los chips del resto del wizard.
     html += `
       <div class="inline-flex p-1 bg-slate-100 rounded-lg gap-1 mb-3.5">
-        <button type="button" data-price-tab="cm" class="flex items-center gap-1.5 px-3.5 py-1.5 text-[12.5px] font-semibold rounded-md transition-colors ${priceTab === 'cm' ? 'bg-white text-brand-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}">
+        <button type="button" data-price-tab="cm" ${hasCm ? '' : 'disabled'}
+                ${hasCm ? '' : 'title="No encontramos un producto de Convenio Marco para esta especificación exacta."'}
+                class="flex items-center gap-1.5 px-3.5 py-1.5 text-[12.5px] font-semibold rounded-md transition-colors ${!hasCm ? 'text-slate-300 cursor-not-allowed' : (priceTab === 'cm' ? 'bg-white text-brand-800 shadow-sm' : 'text-slate-500 hover:text-slate-700')}">
           <svg class="w-3.5 h-3.5 flex-shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M3 21h18M4 21V8l8-5 8 5v13M9 21v-6h6v6"/></svg>
           Convenio Marco
         </button>
-        <button type="button" data-price-tab="ca" class="flex items-center gap-1.5 px-3.5 py-1.5 text-[12.5px] font-semibold rounded-md transition-colors ${priceTab === 'ca' ? 'bg-white text-brand-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}">
+        <button type="button" data-price-tab="ca" ${hasCa ? '' : 'disabled'}
+                ${hasCa ? '' : 'title="Sin compras históricas de Compra Ágil registradas para esta combinación."'}
+                class="flex items-center gap-1.5 px-3.5 py-1.5 text-[12.5px] font-semibold rounded-md transition-colors ${!hasCa ? 'text-slate-300 cursor-not-allowed' : (priceTab === 'ca' ? 'bg-white text-brand-800 shadow-sm' : 'text-slate-500 hover:text-slate-700')}">
           <svg class="w-3.5 h-3.5 flex-shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.3 2.3c-.6.6-.2 1.7.7 1.7H17m-10 0a2 2 0 100 4 2 2 0 000-4zm10 0a2 2 0 100 4 2 2 0 000-4z"/></svg>
           Compra Ágil
         </button>
       </div>`;
     html += priceTab === 'ca' ? caBlockHtml(priceData, true) : cmBlockHtml(cmPriceData);
   } else {
-    if (hasCm) html += cmBlockHtml(cmPriceData);
-    if (priceData) {
-      html += caBlockHtml(priceData, !hasCm);
-    } else if (hasCm) {
-      html += `<p class="text-[11px] text-slate-400 mt-2">Sin compras históricas de Compra Ágil registradas para esta combinación.</p>`;
-    }
-    if (CONFIG.supportsConvenioMarco && !cmPriceData) {
-      html += cmNotFoundHtml();
-    }
+    // Categoría sin soporte de Convenio Marco -- Compra Ágil directo, sin tabs.
+    html += caBlockHtml(priceData, true);
   }
 
   panel.innerHTML = html;
@@ -2204,14 +2204,6 @@ function cmBlockHtml(cm) {
       </p>` : '<div class="mt-2.5"></div>'}
       <div class="space-y-1.5">${productsHtml}</div>
       ${cmPagerHtml(allProducts)}` : ''}` : ''}
-    </div>`;
-}
-
-function cmNotFoundHtml() {
-  return `
-    <div class="bg-white border border-slate-200 rounded-xl p-3 mt-2">
-      <p class="text-[10.5px] font-semibold text-slate-400 uppercase tracking-wide mb-1">Convenio Marco vigente</p>
-      <p class="text-[11.5px] text-slate-400">No encontramos un producto de Convenio Marco para esta especificación exacta.</p>
     </div>`;
 }
 

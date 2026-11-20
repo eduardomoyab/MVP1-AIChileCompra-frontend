@@ -2187,7 +2187,12 @@ function cmBlockHtml(cm) {
       ${allProducts.length ? `
       <button type="button" data-cm-toggle-products class="w-full flex items-center justify-center gap-1.5 py-2 bg-white hover:bg-brand-100 border border-brand-200 text-brand-700 text-[12px] font-semibold rounded-lg transition-colors">${toggleLabel}</button>
       ${cmState.expanded ? `
-      <div class="space-y-1.5 mt-2.5">${productsHtml}</div>
+      ${revisados.length === 0 ? `
+      <p class="flex items-center gap-1.5 text-[10.5px] text-brand-700 bg-white/70 border border-brand-200 rounded-md px-2.5 py-1.5 mt-2.5 mb-2">
+        <svg class="w-3.5 h-3.5 flex-shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path stroke-linecap="round" d="M12 11v5m0-8h.01"/></svg>
+        Toca uno o más productos para guardarlos y compararlos en "Mi cotización".
+      </p>` : '<div class="mt-2.5"></div>'}
+      <div class="space-y-1.5">${productsHtml}</div>
       ${cmPagerHtml(allProducts)}` : ''}` : ''}
     </div>`;
 }

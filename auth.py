@@ -245,11 +245,18 @@ def _verify_turnstile(token: str, remote_ip: str = None) -> bool:
 def check_access(email: str):
     """Le pregunta al backend (GET /api/auth/check_access) en vez de tocar
     Postgres directo — el frontend no tiene ni debe tener credenciales de
-    base de datos propias. Devuelve (allowed, sections, is_admin): sections
-    es None si la app no tiene secciones definidas (sin restricción) o una
-    lista de slugs (puede ser vacía) si sí las tiene; is_admin es True si el
-    correo pertenece al grupo 'Admins' (ver access_service.is_admin en el
-    backend) — habilita el link "Panel de administrador"."""
+    base de datos propias. Devuelve (allowed, sections, is_admin, backend_error):
+    sections es None si la app no tiene secciones definidas (sin restricción)
+    o una lista de slugs (puede ser vacía) si sí las tiene; is_admin es True
+    si el correo pertenece al grupo 'Admins' (ver access_service.is_admin en
+    el backend) — habilita el link "Panel de administrador".
+
+    backend_error distingue "de verdad no tiene acceso" (el backend
+    respondió y dijo que no) de "no se pudo ni preguntar" (timeout, backend
+    reiniciándose, etc.) -- reporte real: alguien con whitelist válida vio
+    "no tienes acceso" justo cuando el backend estaba recién despertando en
+    Railway (Connection refused acá adentro), un mensaje engañoso para un
+    problema transitorio que nada tiene que ver con la whitelist."""
     api_url = os.getenv("API_URL", "http://localhost:8000")
     api_key = os.getenv("FRONTEND_API_KEY", "")
     try:
@@ -261,10 +268,10 @@ def check_access(email: str):
         )
         resp.raise_for_status()
         data = resp.json()
-        return bool(data.get("allowed")), data.get("sections"), bool(data.get("is_admin"))
+        return bool(data.get("allowed")), data.get("sections"), bool(data.get("is_admin")), False
     except Exception:
         current_app.logger.exception("Error consultando lista blanca de acceso")
-        return False, [], False
+        return False, [], False, True
 
 
 def login_required(view):
@@ -281,6 +288,15 @@ def _no_access(email):
     flash(
         f'La cuenta "{email or "desconocida"}" no tiene acceso a esta aplicación. '
         "Pídele a un administrador que te agregue en el módulo Aplicaciones del panel.",
+        "error",
+    )
+    return redirect(url_for("auth.login"))
+
+
+def _backend_unavailable():
+    flash(
+        "No pudimos confirmar tu acceso en este momento -- el servicio puede estar "
+        "reiniciándose. Intenta de nuevo en unos segundos.",
         "error",
     )
     return redirect(url_for("auth.login"))
@@ -349,7 +365,9 @@ def google_callback():
     email_verified = userinfo.get("email_verified", False)
     name = userinfo.get("name")
 
-    allowed, sections, is_admin = check_access(email) if (email_verified and email) else (False, [], False)
+    allowed, sections, is_admin, backend_error = check_access(email) if (email_verified and email) else (False, [], False, False)
+    if backend_error:
+        return _backend_unavailable()
     if not allowed:
         return _no_access(email)
 
@@ -397,7 +415,9 @@ def microsoft_callback():
             email = preferred
     name = userinfo.get("name")
 
-    allowed, sections, is_admin = check_access(email) if email else (False, [], False)
+    allowed, sections, is_admin, backend_error = check_access(email) if email else (False, [], False, False)
+    if backend_error:
+        return _backend_unavailable()
     if not allowed:
         return _no_access(email)
 

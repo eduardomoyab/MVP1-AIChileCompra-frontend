@@ -1008,7 +1008,12 @@ function updateProgressBar() {
     segs.push(`<div class="h-1 flex-1 rounded-full ${cls} transition-colors"></div>`);
   }
   progressSegments.innerHTML = segs.join('');
-  forwardBtn.disabled = currentStepIndex >= TOTAL_STEPS;
+  // Guardado por si el HTML servido (cacheado, o un template que no haya
+  // adoptado el botón todavía) no trae #wiz-forward-btn -- sin esto, un
+  // TypeError acá arriba (forwardBtn null) aborta TODO renderScreen() en
+  // seco (esto corre antes de pintar la pantalla), con cualquier otro
+  // control de esa pantalla "sin responder" como síntoma, no solo este botón.
+  if (forwardBtn) forwardBtn.disabled = currentStepIndex >= TOTAL_STEPS;
 }
 
 function renderPriceMini() {
@@ -3353,7 +3358,7 @@ document.addEventListener('DOMContentLoaded', () => {
   // revisados NO se carga de ningún lado -- arranca vacío siempre (ver nota junto a "let revisados = []").
   bindGlobalPriceDelegation();
   backBtn.addEventListener('click', goBack);
-  forwardBtn.addEventListener('click', goForward);
+  if (forwardBtn) forwardBtn.addEventListener('click', goForward);
   const historialTopBtn = document.querySelector('#wiz-progress-wrap [data-abrir-historial]');
   if (historialTopBtn) historialTopBtn.addEventListener('click', openHistorial);
   const historySidebar = document.getElementById('wiz-history-sidebar');

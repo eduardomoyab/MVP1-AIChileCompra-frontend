@@ -1265,7 +1265,10 @@ function stepScreenHtml(step) {
         <span class="step-badge">${CORE_STEPS.indexOf(step) + 1}</span>
         <p class="text-[11px] font-semibold text-brand-600 uppercase tracking-wide">${stepLabel(step)}</p>
         ${helpIconHtml(meta.help_text)}
-        <span class="ml-auto text-[11px] text-slate-400">Paso ${CORE_STEPS.indexOf(step) + 1} de ${CORE_STEPS.length}</span>
+        <span class="ml-auto flex items-center gap-2.5">
+          ${hasAttrValue(attr) ? `<button type="button" data-clear-core="${attr}" class="text-[11px] font-medium text-slate-400 hover:text-red-500 transition-colors">quitar valor</button>` : ''}
+          <span class="text-[11px] text-slate-400">Paso ${CORE_STEPS.indexOf(step) + 1} de ${CORE_STEPS.length}</span>
+        </span>
       </div>
       <p class="step-title">${pickerCaption(step, meta)}</p>
       ${current?.gama_note ? `<p class="text-[12px] text-brand-600 leading-snug -mt-3 mb-4">${escapeHtml(current.gama_note)}</p>` : ''}
@@ -1846,6 +1849,26 @@ function bindScreenEvents() {
   });
   screenEl.querySelectorAll('[data-clear-optional]').forEach(btn => {
     btn.addEventListener('click', () => clearOptionalAttr(btn.dataset.clearOptional));
+  });
+  // Reporte real: "no veo para eliminar el valor" en un paso core (ej.
+  // Almacenamiento) -- a diferencia de un atributo opcional, un core no
+  // puede quedar "sin especificar" (bloquea el precio), pero sí se puede
+  // limpiar el valor actual para elegir otro desde cero (el slider/chips
+  // vuelve a su estado por defecto) en vez de tener que sobrescribirlo a
+  // ciegas.
+  screenEl.querySelectorAll('[data-clear-core]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const attr = btn.dataset.clearCore;
+      const step = CORE_STEPS.find(s => stepPrimaryAttr(s) === attr);
+      ficha[attr] = null;
+      manualUpdate(attr, null);
+      rangeModeOverride.delete(attr);
+      if (step) {
+        confirmedAttrs.delete(step);
+        forceChooseAttrs.delete(step);
+      }
+      renderScreen();
+    });
   });
   screenEl.querySelectorAll('[data-finish-optional]').forEach(btn => {
     btn.addEventListener('click', () => advanceStep());

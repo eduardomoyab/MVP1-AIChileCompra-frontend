@@ -1266,7 +1266,10 @@ function stepScreenHtml(step) {
         <p class="text-[11px] font-semibold text-brand-600 uppercase tracking-wide">${stepLabel(step)}</p>
         ${helpIconHtml(meta.help_text)}
         <span class="ml-auto flex items-center gap-2.5">
-          ${hasAttrValue(attr) ? `<button type="button" data-clear-core="${attr}" class="text-[11px] font-medium text-slate-400 hover:text-red-500 transition-colors">quitar valor</button>` : ''}
+          ${hasAttrValue(attr) ? `<button type="button" data-clear-core="${attr}" class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[11px] font-medium text-red-500 hover:text-red-600 hover:bg-red-50 transition-colors">
+            <svg class="w-3 h-3" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
+            quitar
+          </button>` : ''}
           <span class="text-[11px] text-slate-400">Paso ${CORE_STEPS.indexOf(step) + 1} de ${CORE_STEPS.length}</span>
         </span>
       </div>
@@ -1672,10 +1675,20 @@ function numericControlHtml(step, attr, meta) {
   const current = ficha[attr]?.value;
   const naturalIsRange = current && typeof current === 'object' && !Array.isArray(current);
   const isRange = rangeModeOverride.has(attr) ? rangeModeOverride.get(attr) : naturalIsRange;
-  if (!isRange) {
-    return sliderHtml(step, attr, meta) + `
-      <button type="button" data-use-range="${attr}" class="w-full mt-2 text-[11.5px] text-slate-400 hover:text-brand-600 transition-colors">+ usar un rango en vez de un valor único</button>`;
-  }
+  // Rediseño (mockup aprobado, tablero 7 del canvas): selector segmentado
+  // "Valor único | Rango" arriba en vez de un link de texto abajo, y en
+  // modo rango dos sliders en vez de dos <select>.
+  const segBtn = (label, active, single) => `
+    <button type="button" data-use-range="${attr}" ${single ? 'data-use-single' : ''}
+            class="px-4 py-1.5 text-[12.5px] font-semibold rounded-md transition-colors ${active ? 'bg-white text-brand-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}">${label}</button>`;
+  const seg = `
+    <div class="flex justify-center mb-3">
+      <div class="inline-flex p-1 bg-slate-100 rounded-lg gap-0.5">
+        ${segBtn('Valor único', !isRange, true)}${segBtn('Rango', isRange, false)}
+      </div>
+    </div>`;
+  if (!isRange) return seg + sliderHtml(step, attr, meta);
+
   const steps = meta.allowed_steps || [];
   const unit = meta.unit || '';
   // Sin valor guardado todavía (el "1000 GB" del slider es solo su posición
@@ -1685,27 +1698,21 @@ function numericControlHtml(step, attr, meta) {
   const cur = naturalIsRange ? current : {};
   const minIdx = steps.indexOf(cur.min) >= 0 ? steps.indexOf(cur.min) : 0;
   const maxIdx = steps.indexOf(cur.max) >= 0 ? steps.indexOf(cur.max) : steps.length - 1;
-  const optList = (selectedIdx) => steps.map((s, i) => `<option value="${i}" ${i === selectedIdx ? 'selected' : ''}>${s} ${escapeHtml(unit)}</option>`).join('');
-  return `
-    <div class="flex items-center gap-2.5 py-1">
-      <div class="flex-1">
-        <label class="block text-[10.5px] text-slate-400 mb-1">Desde</label>
-        <div class="relative">
-          <select data-range-min="${attr}" data-range-steps='${JSON.stringify(steps)}' class="appearance-none w-full text-[13px] font-medium bg-slate-50 border border-slate-200 rounded-lg pl-2.5 pr-7 py-2 text-slate-700 focus:outline-none focus:ring-2 focus:ring-brand-500">${optList(minIdx)}</select>
-          <svg class="w-3 h-3 text-slate-400 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/></svg>
-        </div>
+  const rangeRow = (label, kind, idx) => `
+    <div>
+      <div class="flex justify-between text-[11px] font-semibold text-slate-500 mb-1.5">
+        <span>${label}</span><span class="text-brand-800" data-range-label="${kind}">${steps[idx]} ${escapeHtml(unit)}</span>
       </div>
-      <span class="text-slate-300 mt-4">–</span>
-      <div class="flex-1">
-        <label class="block text-[10.5px] text-slate-400 mb-1">Hasta</label>
-        <div class="relative">
-          <select data-range-max="${attr}" data-range-steps='${JSON.stringify(steps)}' class="appearance-none w-full text-[13px] font-medium bg-slate-50 border border-slate-200 rounded-lg pl-2.5 pr-7 py-2 text-slate-700 focus:outline-none focus:ring-2 focus:ring-brand-500">${optList(maxIdx)}</select>
-          <svg class="w-3 h-3 text-slate-400 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/></svg>
-        </div>
-      </div>
+      <input type="range" min="0" max="${steps.length - 1}" step="1" value="${idx}"
+             data-range-${kind}="${attr}" data-range-steps='${JSON.stringify(steps)}' data-range-unit="${escapeHtml(unit)}"
+             class="w-full accent-brand-600" />
+    </div>`;
+  return `${seg}
+    <div class="space-y-4 py-2">
+      ${rangeRow('Desde', 'min', minIdx)}
+      ${rangeRow('Hasta', 'max', maxIdx)}
     </div>
-    <button type="button" data-confirm-range="${attr}" class="w-full mt-2.5 py-2.5 bg-brand-600 hover:bg-brand-700 text-white text-[13.5px] font-semibold rounded-lg transition-colors">Confirmar rango →</button>
-    <button type="button" data-use-range="${attr}" data-use-single class="w-full mt-1.5 text-[11.5px] text-slate-400 hover:text-brand-600 transition-colors">usar un valor único en vez de un rango</button>`;
+    <button type="button" data-confirm-range="${attr}" class="w-full mt-2.5 py-2.5 bg-brand-600 hover:bg-brand-700 text-white text-[13.5px] font-semibold rounded-lg transition-colors">Confirmar rango →</button>`;
 }
 
 function optionalAttrEditScreenHtml(attr) {
@@ -2000,6 +2007,26 @@ function bindScreenEvents() {
       const attr = btn.dataset.useRange;
       rangeModeOverride.set(attr, !btn.hasAttribute('data-use-single'));
       renderScreen();
+    });
+  });
+  // Sliders "Desde"/"Hasta": la etiqueta sigue al slider en vivo, y uno
+  // empuja al otro si se cruzan (nunca queda Desde > Hasta).
+  screenEl.querySelectorAll('[data-range-min], [data-range-max]').forEach(slider => {
+    slider.addEventListener('input', () => {
+      const kind = slider.hasAttribute('data-range-min') ? 'min' : 'max';
+      const attr = slider.dataset[kind === 'min' ? 'rangeMin' : 'rangeMax'];
+      const other = screenEl.querySelector(`[data-range-${kind === 'min' ? 'max' : 'min'}="${attr}"]`);
+      const steps = JSON.parse(slider.dataset.rangeSteps);
+      const unit = slider.dataset.rangeUnit || '';
+      if (other) {
+        const a = Number(slider.value), b = Number(other.value);
+        if ((kind === 'min' && a > b) || (kind === 'max' && a < b)) other.value = slider.value;
+      }
+      ['min', 'max'].forEach(k => {
+        const s = screenEl.querySelector(`[data-range-${k}="${attr}"]`);
+        const lbl = screenEl.querySelector(`[data-range-label="${k}"]`);
+        if (s && lbl) lbl.textContent = `${steps[Number(s.value)]} ${unit}`.trim();
+      });
     });
   });
   screenEl.querySelectorAll('[data-confirm-range]').forEach(btn => {

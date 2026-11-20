@@ -1422,11 +1422,17 @@ function sliderHtml(step, attr, meta) {
   const steps = meta.allowed_steps || [];
   const current = ficha[attr]?.value;
   let idx = steps.indexOf(Array.isArray(current) ? current[0] : current);
-  if (idx < 0) idx = Math.floor(steps.length / 2);
+  // Sin valor guardado, el slider igual necesita una posición inicial --
+  // se marca en gris + "sin definir" para que no parezca un valor ya
+  // elegido (reporte real: "no veo para eliminar el valor", cuando en
+  // realidad no había ninguno guardado todavía).
+  const isDefault = idx < 0;
+  if (isDefault) idx = Math.floor(steps.length / 2);
   const unit = meta.unit || '';
   return `
     <div class="py-2">
-      <p class="text-center text-[26px] font-bold text-brand-700 mb-3" data-slider-output="${attr}">${steps[idx]} ${escapeHtml(unit)}</p>
+      <p class="text-center text-[26px] font-bold ${isDefault ? 'text-slate-300' : 'text-brand-700'} ${isDefault ? 'mb-0.5' : 'mb-3'}" data-slider-output="${attr}">${steps[idx]} ${escapeHtml(unit)}</p>
+      ${isDefault ? `<p class="text-center text-[11px] text-slate-400 mb-3">sin definir -- mueve el control y confirma</p>` : ''}
       <input type="range" min="0" max="${steps.length - 1}" step="1" value="${idx}"
              data-slider="${attr}" data-steps='${JSON.stringify(steps)}'
              class="w-full accent-brand-600" />
@@ -1672,8 +1678,13 @@ function numericControlHtml(step, attr, meta) {
   }
   const steps = meta.allowed_steps || [];
   const unit = meta.unit || '';
-  const minIdx = Math.max(0, steps.indexOf(current.min) >= 0 ? steps.indexOf(current.min) : 0);
-  const maxIdx = Math.max(0, steps.indexOf(current.max) >= 0 ? steps.indexOf(current.max) : steps.length - 1);
+  // Sin valor guardado todavía (el "1000 GB" del slider es solo su posición
+  // por defecto), current es undefined -- antes `current.min` tiraba un
+  // TypeError que abortaba renderScreen() y el botón "usar un rango"
+  // parecía no hacer nada (reporte real).
+  const cur = naturalIsRange ? current : {};
+  const minIdx = steps.indexOf(cur.min) >= 0 ? steps.indexOf(cur.min) : 0;
+  const maxIdx = steps.indexOf(cur.max) >= 0 ? steps.indexOf(cur.max) : steps.length - 1;
   const optList = (selectedIdx) => steps.map((s, i) => `<option value="${i}" ${i === selectedIdx ? 'selected' : ''}>${s} ${escapeHtml(unit)}</option>`).join('');
   return `
     <div class="flex items-center gap-2.5 py-1">
@@ -1964,7 +1975,10 @@ function bindScreenEvents() {
     const output = screenEl.querySelector(`[data-slider-output="${attr}"]`);
     const meta = SCHEMA.attributes[attr];
     slider.addEventListener('input', () => {
-      if (output) output.textContent = `${steps[Number(slider.value)]} ${meta.unit || ''}`.trim();
+      if (!output) return;
+      output.textContent = `${steps[Number(slider.value)]} ${meta.unit || ''}`.trim();
+      output.classList.remove('text-slate-300');
+      output.classList.add('text-brand-700');
     });
   });
   screenEl.querySelectorAll('[data-confirm-slider]').forEach(btn => {

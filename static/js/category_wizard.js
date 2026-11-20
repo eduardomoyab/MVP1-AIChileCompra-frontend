@@ -1196,9 +1196,23 @@ function stepScreenHtml(step) {
   const hasAiPending = current && current.value != null && current.source === 'ai' &&
                         !confirmedAttrs.has(step) && !forceChooseAttrs.has(step);
 
+  // Reporte real: "al inicio la herramienta no detecta el texto, pero al
+  // apretar la flechita para atrás sí aparecen sugerencias" -- este aviso
+  // (el `message` que devuelve la IA, ej. specs típicas de un uso/gama)
+  // se calculaba más abajo, después del `return` de hasAiPending -- nunca
+  // llegaba a pintarse cuando el primer paso mostraba la tarjeta
+  // "Sugerido por IA" en vez del picker crudo. No desaparecía: nunca se
+  // mostró. Se calcula una sola vez acá arriba y se muestra en los dos casos.
+  const notice = (CORE_STEPS.indexOf(step) === 0 && clarifyNotice) ? `
+    <div class="mb-3.5 px-3.5 py-3 bg-amber-50 border border-amber-200 rounded-xl wiz-pop">
+      <p class="text-[13px] font-medium text-amber-800 leading-snug">${escapeHtml(clarifyNotice.message || 'No pudimos determinar algunos datos del texto.')}</p>
+      ${clarifyNotice.question ? `<p class="text-[12px] text-amber-700 mt-1">${escapeHtml(clarifyNotice.question)}</p>` : ''}
+    </div>` : '';
+
   if (hasAiPending) {
     return `
       <div class="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
+        ${notice}
         <span class="inline-flex items-center text-[10.5px] font-semibold text-brand-700 bg-brand-50 border border-brand-100 rounded-full px-2.5 py-1 mb-3">Sugerido por IA</span>
         <h2 class="text-[22px] font-semibold text-brand-800 tracking-tight mb-4">${stepLabel(step)}${helpIconHtml(meta.help_text)}</h2>
         <p class="text-[26px] font-semibold text-slate-900 tracking-tight mb-1">${escapeHtml(attrValueText(attr, current.value))}</p>
@@ -1209,12 +1223,6 @@ function stepScreenHtml(step) {
         </div>
       </div>`;
   }
-
-  const notice = (CORE_STEPS.indexOf(step) === 0 && clarifyNotice) ? `
-    <div class="mb-3.5 px-3.5 py-3 bg-amber-50 border border-amber-200 rounded-xl wiz-pop">
-      <p class="text-[13px] font-medium text-amber-800 leading-snug">${escapeHtml(clarifyNotice.message || 'No pudimos determinar algunos datos del texto.')}</p>
-      ${clarifyNotice.question ? `<p class="text-[12px] text-amber-700 mt-1">${escapeHtml(clarifyNotice.question)}</p>` : ''}
-    </div>` : '';
 
   const logical = (CONFIG.logicalSteps || {})[step];
   const secondaryHtml = logical ? secondaryAttrInputHtml(logical) : '';

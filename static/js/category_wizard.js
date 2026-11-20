@@ -2069,10 +2069,20 @@ function renderPricePanel() {
   const hasBoth = hasCm && !!priceData;
   let html = '';
   if (hasBoth) {
+    // Reporte real: "que se vea más vistoso o más intuitivo que se debe
+    // presionar" -- el tab de solo texto+subrayado no se leía como
+    // presionable. Control segmentado (pastilla activa sobre track gris),
+    // mismo lenguaje visual que los chips del resto del wizard.
     html += `
-      <div class="flex gap-5 border-b border-slate-200 mb-3.5">
-        <button type="button" data-price-tab="cm" class="pb-2 text-[13px] font-semibold -mb-px border-b-2 transition-colors ${priceTab === 'cm' ? 'text-brand-800 border-brand-600' : 'text-slate-400 border-transparent hover:text-slate-600'}">Convenio Marco</button>
-        <button type="button" data-price-tab="ca" class="pb-2 text-[13px] font-semibold -mb-px border-b-2 transition-colors ${priceTab === 'ca' ? 'text-brand-800 border-brand-600' : 'text-slate-400 border-transparent hover:text-slate-600'}">Compra Ágil</button>
+      <div class="inline-flex p-1 bg-slate-100 rounded-lg gap-1 mb-3.5">
+        <button type="button" data-price-tab="cm" class="flex items-center gap-1.5 px-3.5 py-1.5 text-[12.5px] font-semibold rounded-md transition-colors ${priceTab === 'cm' ? 'bg-white text-brand-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}">
+          <svg class="w-3.5 h-3.5 flex-shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M3 21h18M4 21V8l8-5 8 5v13M9 21v-6h6v6"/></svg>
+          Convenio Marco
+        </button>
+        <button type="button" data-price-tab="ca" class="flex items-center gap-1.5 px-3.5 py-1.5 text-[12.5px] font-semibold rounded-md transition-colors ${priceTab === 'ca' ? 'bg-white text-brand-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}">
+          <svg class="w-3.5 h-3.5 flex-shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.3 2.3c-.6.6-.2 1.7.7 1.7H17m-10 0a2 2 0 100 4 2 2 0 000-4zm10 0a2 2 0 100 4 2 2 0 000-4z"/></svg>
+          Compra Ágil
+        </button>
       </div>`;
     html += priceTab === 'ca' ? caBlockHtml(priceData, true) : cmBlockHtml(cmPriceData);
   } else {

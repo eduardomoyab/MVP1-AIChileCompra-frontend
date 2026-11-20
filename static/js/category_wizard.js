@@ -73,6 +73,13 @@ const rangeModeOverride = new Map();
 // Grupo abierto del acordeón de "Detalles opcionales" (ver detallesScreenHtml).
 // null => todavía no se decidió, se abre el primero con algo sin especificar.
 let detallesOpenGroup = null;
+// Reporte real: "agregar un botón de agregar más atributos, la flecha de
+// volver no es tan intuitiva" + "poder eliminar/modificar los atributos
+// de arriba (en el resumen) con una x". Cuando se edita un atributo desde
+// el resumen (en vez de navegar paso a paso con la flecha), acá se guarda
+// a qué paso volver al confirmar -- null = flujo normal (avanzar al
+// siguiente paso como siempre).
+let resumenReturnStep = null;
 let clarifyNotice = null;       // {message, question} -- la IA no pudo resolver el primer paso core
 // Tras agregar una compra: pantalla de siguientes pasos en vez del formulario vacío.
 let addedNotice = null;     // { sid, updated, itemId } -- solo vale para el formulario (SESSION_ID) donde se agregó
@@ -846,6 +853,16 @@ function handleWizardEvent(data) {
 function onAttrConfirmed(step) {
   confirmedAttrs.add(step);
   forceChooseAttrs.delete(step);
+  // Si se entró a este paso editando directo desde el resumen (ver
+  // editAttrFromSummary), se vuelve ahí en vez de seguir avanzando paso a
+  // paso -- los demás pasos ya estaban completos, no hace falta
+  // repasarlos de nuevo.
+  if (resumenReturnStep != null) {
+    currentStepIndex = resumenReturnStep;
+    resumenReturnStep = null;
+    renderScreen();
+    return;
+  }
   advanceStep();
 }
 
@@ -864,6 +881,11 @@ function advanceStep() {
 }
 
 function goBack() {
+  // Navegación manual explícita -- cancela cualquier "volver directo al
+  // resumen" pendiente (ver editAttrFromSummary/clearAttrFromSummary); si
+  // no, confirmar un paso distinto al que se había saltado a editar podía
+  // mandar de vuelta al resumen salteándose el que quedó a medias.
+  resumenReturnStep = null;
   if (currentStepIndex === 0) {
     showingTextScreen = true;
     renderScreen();
@@ -887,8 +909,14 @@ function pickValue(attr, value) {
     onAttrConfirmed(step);
   } else if (editingOptionalAttr === attr) {
     // se definió desde el editor de un detalle opcional -- guardar y volver
-    // a la lista (ver optionalAttrEditScreenHtml / detallesScreenHtml).
+    // a la lista (ver optionalAttrEditScreenHtml / detallesScreenHtml), o
+    // directo al resumen si se entró editando desde ahí (ver
+    // editAttrFromSummary).
     editingOptionalAttr = null;
+    if (resumenReturnStep != null) {
+      currentStepIndex = resumenReturnStep;
+      resumenReturnStep = null;
+    }
     renderScreen();
   } else {
     // atributo opcional: se completa sin avanzar de paso.
@@ -900,7 +928,49 @@ function clearOptionalAttr(attr) {
   ficha[attr] = null;
   manualUpdate(attr, null);
   editingOptionalAttr = null;
+  if (resumenReturnStep != null) {
+    currentStepIndex = resumenReturnStep;
+    resumenReturnStep = null;
+  }
   renderScreen();
+}
+
+/* ── Edición directa de un atributo desde el resumen ──────────────────
+   Reporte real: "poder eliminar/modificar los atributos de arriba (en el
+   resumen) con una x" + "la flecha de volver no es tan intuitiva". En vez
+   de navegar paso a paso con la flecha superior (que va de a un paso por
+   click), estas dos funciones saltan directo al atributo pedido desde el
+   resumen, y onAttrConfirmed()/el "back" del editor opcional saben volver
+   ahí mismo gracias a resumenReturnStep -- los demás atributos ya
+   llenados no se tocan. ────────────────────────────────────────────── */
+function editAttrFromSummary(attr) {
+  const step = CORE_STEPS.find(s => stepPrimaryAttr(s) === attr);
+  resumenReturnStep = currentStepIndex;
+  if (step) {
+    currentStepIndex = CORE_STEPS.indexOf(step);
+    renderScreen();
+    refreshFacetsFor([step]);
+    return;
+  }
+  currentStepIndex = OPTIONAL_STEP_INDEX;
+  editingOptionalAttr = attr;
+  renderScreen();
+}
+
+function clearAttrFromSummary(attr) {
+  const step = CORE_STEPS.find(s => stepPrimaryAttr(s) === attr);
+  if (!step) { clearOptionalAttr(attr); return; }
+  // Un atributo core no puede quedar vacío en el resumen (bloquea el
+  // precio) -- a diferencia de uno opcional, limpiarlo manda derecho a
+  // repasar ese paso, no se queda en el resumen a medias.
+  ficha[attr] = null;
+  manualUpdate(attr, null);
+  confirmedAttrs.delete(step);
+  forceChooseAttrs.delete(step);
+  resumenReturnStep = currentStepIndex;
+  currentStepIndex = CORE_STEPS.indexOf(step);
+  renderScreen();
+  refreshFacetsFor([step]);
 }
 
 /* ── Barra de progreso + precio mini ───────────────────────────────── */
@@ -1603,25 +1673,47 @@ function optionalAttrEditScreenHtml(attr) {
 
 /* ── Resumen ────────────────────────────────────────────────────────── */
 
+// Reporte real: "poder eliminar filtros al final (en la parte superior,
+// que los atributos seleccionados tengan una x)" + poder modificar ese en
+// particular desde ahí. Cada chip del resumen es ahora dos botones: el
+// texto (edita ese atributo puntual, ver editAttrFromSummary) y una "x"
+// (lo limpia, ver clearAttrFromSummary) -- sin tener que usar la flecha
+// de volver de arriba, que va paso a paso y no deja saltar directo a uno.
+function summaryChipHtml(attr, label, value, tone) {
+  const palette = tone === 'core'
+    ? { box: 'bg-emerald-50 text-emerald-700 border-emerald-200', x: 'hover:bg-emerald-100' }
+    : { box: 'bg-slate-50 text-slate-600 border-slate-200', x: 'hover:bg-slate-200' };
+  const text = tone === 'core' ? escapeHtml(attrValueText(attr, value)) : `${escapeHtml(label)}: ${escapeHtml(attrValueText(attr, value))}`;
+  return `
+    <span class="inline-flex items-center gap-0.5 text-[${tone === 'core' ? '12' : '11'}px] font-medium border rounded-full pl-2.5 pr-1 py-1 ${palette.box}">
+      <button type="button" data-resumen-edit="${attr}" class="hover:underline">${text}</button>
+      <button type="button" data-resumen-clear="${attr}" aria-label="Quitar ${escapeHtml(label)}" class="w-4 h-4 flex items-center justify-center rounded-full flex-shrink-0 transition-colors ${palette.x}">
+        <svg class="w-2.5 h-2.5" fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
+      </button>
+    </span>`;
+}
+
 function resumenScreenHtml() {
   const coreChips = CORE_STEPS.map(step => {
     const attr = stepPrimaryAttr(step);
     const v = ficha[attr]?.value;
-    return (v != null && v !== '')
-      ? `<span class="inline-flex items-center gap-1 text-[12px] font-medium bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-full px-2.5 py-1">${escapeHtml(attrValueText(attr, v))}</span>`
-      : '';
-  }).filter(Boolean).join(' ');
+    return (v != null && v !== '') ? summaryChipHtml(attr, stepLabel(step), v, 'core') : '';
+  }).filter(Boolean).join('');
   const optionalChips = OPTIONAL_ATTRS.map(attr => {
     const v = ficha[attr]?.value;
     if (v == null || v === '') return '';
-    return `<span class="inline-flex items-center gap-1 text-[11px] font-medium bg-slate-50 text-slate-600 border border-slate-200 rounded-full px-2.5 py-1">${ATTR_LABELS[attr]}: ${escapeHtml(attrValueText(attr, v))}</span>`;
-  }).filter(Boolean).join(' ');
+    return summaryChipHtml(attr, ATTR_LABELS[attr], v, 'optional');
+  }).filter(Boolean).join('');
 
   return `
     <div class="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
       <p class="text-[11px] font-semibold text-emerald-600 uppercase tracking-wide mb-3">${editingItemId ? `Editando la compra ${cart.findIndex(i => i.id === editingItemId) + 1}` : '✓ Compra lista para agregar'}</p>
       <div class="flex flex-wrap gap-1.5 mb-2">${coreChips}</div>
-      ${optionalChips ? `<div class="flex flex-wrap gap-1.5 mb-4">${optionalChips}</div>` : ''}
+      ${optionalChips ? `<div class="flex flex-wrap gap-1.5 mb-2">${optionalChips}</div>` : ''}
+      <button type="button" data-resumen-add-attrs class="inline-flex items-center gap-1 text-[11.5px] font-medium text-brand-600 hover:text-brand-700 mb-4">
+        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/></svg>
+        Agregar más atributos
+      </button>
 
       <div class="flex items-center justify-between gap-4 border border-slate-200 rounded-xl px-4 py-3 mb-4 bg-slate-50/60">
         <div class="min-w-0">
@@ -1691,7 +1783,14 @@ function bindScreenEvents() {
     btn.addEventListener('click', () => { editingOptionalAttr = btn.dataset.editOptional; renderScreen(); });
   });
   screenEl.querySelectorAll('[data-back-optional]').forEach(btn => {
-    btn.addEventListener('click', () => { editingOptionalAttr = null; renderScreen(); });
+    btn.addEventListener('click', () => {
+      editingOptionalAttr = null;
+      if (resumenReturnStep != null) {
+        currentStepIndex = resumenReturnStep;
+        resumenReturnStep = null;
+      }
+      renderScreen();
+    });
   });
   screenEl.querySelectorAll('[data-clear-optional]').forEach(btn => {
     btn.addEventListener('click', () => clearOptionalAttr(btn.dataset.clearOptional));
@@ -1873,6 +1972,18 @@ function bindScreenEvents() {
   if (agregarBtn) agregarBtn.addEventListener('click', agregarRequerimiento);
   const nuevoBtn = screenEl.querySelector('[data-nuevo-requerimiento]');
   if (nuevoBtn) nuevoBtn.addEventListener('click', () => empezarNuevoRequerimiento());
+
+  screenEl.querySelectorAll('[data-resumen-edit]').forEach(btn => {
+    btn.addEventListener('click', () => editAttrFromSummary(btn.dataset.resumenEdit));
+  });
+  screenEl.querySelectorAll('[data-resumen-clear]').forEach(btn => {
+    btn.addEventListener('click', () => clearAttrFromSummary(btn.dataset.resumenClear));
+  });
+  const addAttrsBtn = screenEl.querySelector('[data-resumen-add-attrs]');
+  if (addAttrsBtn) addAttrsBtn.addEventListener('click', () => {
+    currentStepIndex = OPTIONAL_STEP_INDEX;
+    renderScreen();
+  });
 }
 
 function bindMultiChipButtons(container) {
@@ -2548,6 +2659,7 @@ function resetWizardState() {
   Object.keys(multiDraft).forEach(k => delete multiDraft[k]);
   rangeModeOverride.clear(); // si no, un toggle forzado en una compra se filtra a la siguiente (mismo attr, distinto ficha)
   detallesOpenGroup = null;
+  resumenReturnStep = null;
   clarifyNotice = null;
   currentTextoOriginal = '';
   draftCantidad = 1;

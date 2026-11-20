@@ -979,9 +979,22 @@ function editAttrFromSummary(attr) {
 function clearAttrFromSummary(attr) {
   const step = CORE_STEPS.find(s => stepPrimaryAttr(s) === attr);
   if (!step) { clearOptionalAttr(attr); return; }
-  // Un atributo core no puede quedar vacío en el resumen (bloquea el
-  // precio) -- a diferencia de uno opcional, limpiarlo manda derecho a
-  // repasar ese paso, no se queda en el resumen a medias.
+  // Reporte real: "la X me manda al paso y al confirmar igual se me fija
+  // un valor, no me deja dejarlo vacío". price_service filtra solo por los
+  // atributos presentes, así que RAM/almacenamiento/procesador pueden
+  // quedar vacíos sin romper el precio -- se borran ahí mismo y se sigue
+  // en el resumen (vuelven a agregarse con su chip "+", ver
+  // resumenScreenHtml). Solo tipo_equipo es obligatorio de verdad
+  // (price_service.estimate devuelve None sin él), así que ese sí manda a
+  // elegir otro.
+  if (attr !== 'tipo_equipo') {
+    ficha[attr] = null;
+    manualUpdate(attr, null);
+    rangeModeOverride.delete(attr);
+    delete multiDraft[attr];
+    renderScreen();
+    return;
+  }
   ficha[attr] = null;
   manualUpdate(attr, null);
   confirmedAttrs.delete(step);
@@ -1758,7 +1771,9 @@ function resumenScreenHtml() {
   const coreChips = CORE_STEPS.map(step => {
     const attr = stepPrimaryAttr(step);
     const v = ficha[attr]?.value;
-    return (v != null && v !== '') ? summaryChipHtml(attr, stepLabel(step), v, 'core') : '';
+    if (v != null && v !== '') return summaryChipHtml(attr, stepLabel(step), v, 'core');
+    // Core quitado con su "x" -- chip punteado para volver a definirlo.
+    return `<button type="button" data-resumen-edit="${attr}" class="inline-flex items-center gap-1 text-[12px] font-medium text-slate-500 hover:text-brand-700 border border-dashed border-slate-300 hover:border-brand-300 rounded-full px-2.5 py-1 transition-colors">+ ${escapeHtml(stepLabel(step))}</button>`;
   }).filter(Boolean).join('');
   const optionalChips = OPTIONAL_ATTRS.map(attr => {
     const v = ficha[attr]?.value;
